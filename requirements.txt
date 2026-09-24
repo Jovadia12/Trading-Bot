@@ -1,6 +1,7 @@
 # Read-only Coinbase Advanced market data + paper execution. No order placement.
 requests>=2.31
-PyJWT>=2.7
-cryptography>=41
-websockets>=12
+PyJWT>=2.8
+cryptography>=42.0.4
+coinbase-advanced-py==1.8.4   # used ONLY for coinbase.jwt_generator (official auth); its REST/WS clients are never imported
+websockets>=12,<14    # coinbase-advanced-py 1.8.4 requires <14
 pytest>=8

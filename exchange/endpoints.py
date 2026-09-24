@@ -12,6 +12,7 @@ import re
 API_HOST = "api.coinbase.com"
 API_PREFIX = "/api/v3/brokerage"
 WS_MARKET_DATA_URL = "wss://advanced-trade-ws.coinbase.com"
+ORDER_PATH_MARKER = "/orders"   # used only by the transport audit to flag attempted order calls
 
 # (path regex, requires_auth). Anchored, GET only.
 _PID = r"[A-Z0-9]{2,10}-[A-Z0-9]{2,10}"

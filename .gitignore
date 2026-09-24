@@ -1,10 +1,14 @@
 # --- Secrets: never commit ---
 .env
 .env.*
+!.env.example
 *.key
 *.pem
+*.p8
+*.p12
 secrets/
 credentials/
+cdp_api_key*.json
 
 # --- Runtime output (paper-trading records, downloaded market data) ---
 paper_trading/records/

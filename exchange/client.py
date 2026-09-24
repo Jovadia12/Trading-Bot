@@ -126,8 +126,14 @@ class CoinbaseAdvancedClient(ExchangeClient):
 
     # ---- products / market data --------------------------------------------------------
     def get_product(self, product_id: str = "BTC-USD") -> ProductSpec:
-        path = f"/products/{product_id}" if self._auth else f"/market/products/{product_id}"
-        return ProductSpec.from_api(self._get(path))
+        if self._auth:
+            try:
+                return ProductSpec.from_api(self._get(f"/products/{product_id}"))
+            except ExchangeAPIError as exc:
+                if exc.status not in (401, 403) and exc.status is not None:
+                    raise
+                log.warning("authenticated product read failed; using public endpoint")
+        return ProductSpec.from_api(self._get(f"/market/products/{product_id}"))
 
     def get_order_book(self, product_id: str = "BTC-USD", limit: int = 50) -> dict:
         path = "/product_book" if self._auth else "/market/product_book"

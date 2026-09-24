@@ -67,14 +67,19 @@ def test_full_session_output_and_logs_contain_no_secret(tmp_path, monkeypatch, c
 
 
 @pytest.mark.parametrize("path", [".env", ".env.local", ".env.production", "secrets/cb.json", "credentials/cb.json",
-                                  "cdp_api_key.key", "private.pem", "paper_trading/records/x/trades.csv"])
+                                  "cdp_api_key.key", "cdp_api_key.json", "private.pem", "key.p8",
+                                  "paper_trading/records/x/trades.csv"])
 def test_gitignore_excludes_credentials_and_records(path):
     r = subprocess.run(["git", "check-ignore", "-q", "--no-index", path], cwd=REPO)
     assert r.returncode == 0, f"{path} is NOT ignored by git"
 
 
-def test_example_env_is_not_ignored_and_has_no_values():
-    r = subprocess.run(["git", "check-ignore", "-q", "--no-index", "config/env.example"], cwd=REPO)
-    assert r.returncode == 1
-    text = (REPO / "config" / "env.example").read_text()
-    assert "COINBASE_API_SECRET=\n" in text and "COINBASE_API_KEY=\n" in text
+def test_env_example_is_tracked_and_contains_only_empty_keys():
+    r = subprocess.run(["git", "check-ignore", "-q", "--no-index", ".env.example"], cwd=REPO)
+    assert r.returncode == 1, ".env.example must NOT be ignored"
+    assert (REPO / ".env.example").read_text() == "COINBASE_API_KEY=\nCOINBASE_API_SECRET=\n"
+
+
+def test_no_real_env_file_is_tracked():
+    tracked = subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True, text=True).stdout.split()
+    assert not any(f == ".env" or (f.startswith(".env.") and f != ".env.example") for f in tracked)

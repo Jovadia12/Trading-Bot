@@ -1,6 +1,6 @@
 # Coinbase Advanced: Market Data + Paper Execution
 
-Status (2026-09-24): **paper/research mode only.**
+Status (2026-09-24, authenticated read-only phase): **paper/research mode only.**
 - Live order placement is not implemented, and the design makes it unreachable (§8).
 - The strategy layer is empty: Version A and the preregistered RSI(2) pullback are **not** implemented or modified.
 
@@ -11,9 +11,9 @@ Status (2026-09-24): **paper/research mode only.**
 ```
 config/          settings.py        PAPER_MODE gate, env/.env loading, redacted Credentials
                  logging_setup.py   secret-redacting log filter
-                 env.example        template (no values); copy to .env locally
+.env.example                        template: COINBASE_API_KEY= / COINBASE_API_SECRET= (no values)
 exchange/        endpoints.py       read-only GET allowlist (enforced) + forbidden list (documented/tested)
-                 auth.py            CDP JWT (Ed25519/EdDSA; legacy EC/ES256)
+                 auth.py            thin wrapper over Coinbase's OFFICIAL coinbase.jwt_generator
                  transport.py       ReadOnlyTransport: the ONLY REST network path; deny-by-default
                  client.py          ExchangeClient (interface) + CoinbaseAdvancedClient (reads only;
                                     every order/funds method raises)
@@ -27,12 +27,13 @@ execution/       paper_engine.py    PaperExecutionEngine (no exchange dependency
                  models.py          orders, fills, statuses
                  fees.py            FeeSchedule (account rates or labelled default)
 paper_trading/   account.py         $500 cash-only paper account with order holds
+                 diagnostics.py     startup diagnostic (status lines only)
                  recorder.py        round-trip trade records (CSV) + order log (JSONL)
                  runner.py          session runner / CLI  (python -m paper_trading)
 risk/            limits.py          pre-trade limits (max notional, open orders, long-only, DD halt)
 strategy/        base.py            Signal / Strategy interface only; no rules in this phase
 backtest/        candle_fill_model.py  plan §5 maker-fill + cost conventions (shared definitions)
-tests/           110 tests, incl. no-live-order proofs; fixtures/ has a SYNTHETIC WS replay file
+tests/           126 tests, incl. no-live-order proofs; fixtures/ has a SYNTHETIC WS replay file
 ```
 
 The data flow is one way:
@@ -45,36 +46,55 @@ The paper engine never holds a reference to the exchange client. There is no `Li
 
 ## 2. Authentication
 
-- **Key type:** Coinbase Developer Platform (CDP) API key. **Ed25519** is recommended; legacy EC P-256 PEM keys also work.
-- **JWT format:** mirrors Coinbase's official SDK (`coinbase/coinbase-advanced-py`, `jwt_generator.py`, commit `54fb8ed`, 2026-06-19). That SDK was read directly from GitHub, which was the only reachable Coinbase source.
-  - Claims: `sub=<key name>`, `iss="cdp"`, `nbf=now`, `exp=now+120`, `uri="GET api.coinbase.com<path>"`.
-  - Headers: `kid=<key name>`, `nonce=<random hex>`.
-  - Algorithm: `EdDSA` for Ed25519, `ES256` for EC.
-- **Secret formats accepted:** raw base64 (32-byte seed, or the 64-byte seed‖pubkey that the CDP portal downloads), or a PEM block.
+- **Implementation:** the JWT is built by Coinbase's official SDK. `exchange/auth.py` calls `coinbase.jwt_generator.build_rest_jwt` from `coinbase-advanced-py==1.8.4`.
+  - Only that module is imported. The SDK's `RESTClient` and `WSClient` contain order functions and are **never imported**; a test walks every import in the codebase to check this.
+- **Key type:** Coinbase Developer Platform (CDP) API key. **Ed25519 is recommended**; legacy EC P-256 PEM keys also work.
+- **Token format:**
+  - Claims: `sub=<key name>`, `iss="cdp"`, `nbf`, `exp=nbf+120`, `uri="GET api.coinbase.com<path>"`.
+  - Headers: `kid`, `nonce`.
+  - Algorithm: `EdDSA` for Ed25519.
 - **A fresh 2-minute token is made per REST request.** Tokens and secrets are never logged.
-- **WebSocket market-data channels are public**, so **no JWT is sent on the market-data connection**.
+- **Error handling:** if the secret can't be parsed, the error message never contains the secret and the original error isn't chained. HTTP errors carry only the path and status code, never response bodies or headers.
+- **No credentials on the market-data connection:** WebSocket market-data channels are public, so no JWT is sent there.
 
 ### Required environment variables
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `PAPER_MODE` | **yes**, must be `true` | Hard gate. Anything else, or unset, means the app refuses to start |
-| `COINBASE_API_KEY` | optional | CDP key name/ID. Needed only for account reads and your real fee tier |
-| `COINBASE_API_SECRET` | optional | Ed25519 private key (base64) or PEM |
-| `ALLOW_TRADE_SCOPED_KEY` | optional, default `false` | Only if you knowingly use a Trade-scoped key |
+| `PAPER_MODE` | **yes**, must be `true` | Hard gate. Unset, `false` or any other value means the app exits immediately (code 2) |
+| `COINBASE_API_KEY` | for authenticated reads | CDP key name, e.g. `organizations/<org>/apiKeys/<id>` |
+| `COINBASE_API_SECRET` | for authenticated reads | Ed25519 private key (base64, as downloaded) or PEM |
+| `ALLOW_TRADE_SCOPED_KEY` | optional, default `false` | Accept a Trade-scoped key. Orders stay impossible |
 
-Setup:
-1. Copy `config/env.example` to `.env` in the repo root and fill it in **locally**.
-2. `.env`, `.env.*`, `*.key`, `*.pem`, `secrets/` and `credentials/` are git-ignored, and a test checks this.
-3. **Create a View-only key.** At startup the app calls `GET /key_permissions`:
-   - it **refuses** keys with `can_transfer`;
-   - it **refuses** keys with `can_trade` unless `ALLOW_TRADE_SCOPED_KEY=true`;
-   - even then, orders stay impossible (§8).
-4. Restrict the key to your IP in the CDP portal if possible.
+Credentials come **only** from environment variables. A local `.env` file in the repo root is read into the environment if present.
+- `.env.example` contains only `COINBASE_API_KEY=` and `COINBASE_API_SECRET=`.
+- `.env`, `.env.*` (except `.env.example`), `*.key`, `*.pem`, `*.p8`, `*.p12`, `cdp_api_key*.json`, `secrets/` and `credentials/` are git-ignored, and tests check this.
+- At startup the app calls `GET /key_permissions`. It **refuses** keys with Transfer permission, and refuses keys with Trade permission unless `ALLOW_TRADE_SCOPED_KEY=true`.
+- **Use a View-only key.**
 
-Without credentials, everything runs on public endpoints, and fees use the labelled default (§5).
+### Startup diagnostic (the only thing printed about the connection)
 
----
+```
+API credentials loaded: YES/NO
+Authenticated Coinbase connection: SUCCESS/FAIL     (GET /key_permissions)
+BTC/USD product: SUCCESS/FAIL                       (authenticated product; public fallback)
+Market data stream: SUCCESS/FAIL                    (first valid level2 snapshot on the public WS)
+Account data: SUCCESS/FAIL                          (GET /accounts, all pages)
+Fee data: SUCCESS/FAIL                              (GET /transaction_summary)
+PAPER MODE: ENABLED
+```
+
+The key, the secret and your balances are never shown. `--show-balances` prints available USD/BTC to your own terminal only and never writes them to disk.
+
+After the session, a **SESSION REPORT** prints:
+- authentication result;
+- whether market data was received;
+- last bid, ask, spread in $ and in bps;
+- the fee rates Coinbase returned (or the labelled default);
+- whether account data was read;
+- market-data message count;
+- paper orders and simulated trades;
+- `order_endpoint_called`, taken from the transport's audit log of every request attempted.
 
 ## 3. REST endpoints used (GET only; enforced allowlist in `exchange/endpoints.py`)
 
@@ -174,7 +194,7 @@ It writes `spreads.csv` and reports median, p90 and max in `summary.json`. Once 
    - The CLI exits with code 2 and a message.
    - There is no "live" value and no override.
 2. **No order code exists.**
-   - `ExchangeClient.place_order / create_order / market_order / limit_order / preview_order / edit_order / cancel_order(s) / close_position / move_portfolio_funds / withdraw / deposit / convert` all raise **`LIVE ORDER EXECUTION DISABLED: research/paper mode only.`**
+   - `ExchangeClient.place_order / create_order / market_order / limit_order / preview_order / edit_order / cancel_order(s) / close_position / move_portfolio_funds / withdraw / deposit / convert` all raise **`LIVE ORDER EXECUTION DISABLED: paper mode only.`**
    - Any *unknown* client attribute that looks like trading or funding (`*order*`, `*withdraw*`, `*transfer*`, `*send*`, `*buy*`, `*sell*`, `*fund*`) raises the same error.
 3. **Transport allowlist (deny by default).**
    - `ReadOnlyTransport` is the only REST network path. It permits **GET** only, to the paths in §3, and checks this **before** building auth headers or opening a connection.
@@ -191,40 +211,47 @@ It writes `spreads.csv` and reports median, p90 and max in `summary.json`. Once 
 
 ---
 
-## 9. How to start paper trading
+## 9. How to start paper trading (on your Mac)
 
 ```bash
+cd Trading-Bot
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp config/env.example .env        # optional: add a VIEW-ONLY CDP key locally; keep PAPER_MODE=true
-PAPER_MODE=true python -m paper_trading --duration 300                   # market data + spread measurement
-PAPER_MODE=true python -m paper_trading --duration 300 --demo-roundtrip  # + scripted execution smoke test
-PAPER_MODE=true python -m paper_trading --replay tests/fixtures/ws_btcusd_synthetic.jsonl --demo-roundtrip
+cp .env.example .env            # then edit .env locally: paste your VIEW-ONLY CDP key name and secret
+chmod 600 .env                  # readable only by you; .env is git-ignored
+export PAPER_MODE=true
+python3 -m pytest -q            # 126 tests
+python3 -m paper_trading --duration 60     # 60-second authenticated paper-data test
+python3 -m paper_trading --duration 300    # 5-minute session
 ```
 
-Outputs go to `paper_trading/records/<run-id>/` (git-ignored): `summary.json`, `spreads.csv`, `trades.csv` and `orders.jsonl`.
+Optional flags:
+- `--demo-roundtrip`: scripted execution smoke test (maker/taker entry, then taker exit). It is not a strategy.
+- `--show-balances`: prints your real available balances locally.
+- `--verbose`: INFO logs, still redacted.
+- `--replay tests/fixtures/ws_btcusd_synthetic.jsonl`: offline run on SYNTHETIC data.
 
-`--demo-roundtrip` runs a scripted **execution-path smoke test**, not a strategy:
-1. Post-only buy at the best bid with a 20 s time-to-live.
-2. If it isn't filled, a taker buy.
-3. After a 5 s hold, a taker sell.
+Outputs go to `paper_trading/records/<run-id>/` (git-ignored): `summary.json`, `spreads.csv`, `trades.csv` and `orders.jsonl`. None of them contain credentials or balances.
 
-No strategy is attached until one is frozen under NEW_STRATEGY_RESEARCH_PLAN.md.
+No strategy is attached, so a normal session produces **0 simulated trades** by design. It measures spread and depth, and exercises the pipeline.
 
-**Network note:** this cloud environment's policy currently blocks `api.coinbase.com` and `advanced-trade-ws.coinbase.com` (HTTP 403 from the egress proxy). To run live here, add both hosts to the environment's allowed network domains, or run locally.
-
----
+**Cloud note:** the Claude Code cloud container used to build this has no credentials, and its network policy blocks `api.coinbase.com` and `advanced-trade-ws.coinbase.com` (HTTP 403). The authenticated session therefore has to run on your Mac.
 
 ## 10. How to verify that NO live orders can be placed
 
 ```bash
-python -m pytest -q                               # 110 tests
+python -m pytest -q                               # 126 tests
 python -m pytest -q tests/test_no_live_orders.py tests/test_paper_mode.py
 grep -rn "brokerage/orders\|/orders\"" --include=*.py . | grep -v tests/   # only exchange/endpoints.py (the blocklist)
 ```
 
 What the tests prove:
 - Every forbidden method and path (order create/preview/edit/cancel/close, convert, portfolio create/move/edit/delete, legacy send/withdraw/deposit, order history) raises before any network access. A recording session shows **zero** calls.
-- Every disabled client method, and any trading-like attribute name, raises the exact message.
+- Every disabled client method, and any trading-like attribute name, raises the exact message `LIVE ORDER EXECUTION DISABLED: paper mode only.`
+- Only `coinbase.jwt_generator` is imported from the official SDK.
+- Authenticated reads (accounts with pagination, portfolios, product, fees) work against mocked Coinbase responses.
+- Authentication failure (HTTP 401, malformed secret, no credentials) is handled without exceptions or leaks, and falls back to public data.
+- A full mocked authenticated session prints exactly the 7 diagnostic lines, reports `order_endpoint_called: NO`, and never prints or writes the key, the secret or balances.
 - Client read methods issue only allowlisted GETs, and none contain `/orders`.
 - No non-test code calls an HTTP write method, or mentions the orders endpoint outside the blocklist.
 - No `LiveExecution*` class exists.

@@ -1,4 +1,4 @@
-LIVE_DISABLED_MESSAGE = "LIVE ORDER EXECUTION DISABLED: research/paper mode only."
+LIVE_DISABLED_MESSAGE = "LIVE ORDER EXECUTION DISABLED: paper mode only."
 
 
 class LiveOrderExecutionDisabled(RuntimeError):
@@ -14,4 +14,9 @@ class ForbiddenEndpointError(LiveOrderExecutionDisabled):
 
 
 class ExchangeAPIError(RuntimeError):
-    """A read-only request failed (HTTP error, bad payload, network)."""
+    """A read-only request failed (HTTP error, bad payload, network). Messages never include
+    response bodies or request headers, so they cannot echo credentials or tokens."""
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status

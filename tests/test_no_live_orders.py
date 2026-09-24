@@ -13,7 +13,7 @@ from exchange.errors import LIVE_DISABLED_MESSAGE, ForbiddenEndpointError, LiveO
 from exchange.transport import ReadOnlyTransport
 
 REPO = Path(__file__).resolve().parent.parent
-MSG = "LIVE ORDER EXECUTION DISABLED: research/paper mode only."
+MSG = "LIVE ORDER EXECUTION DISABLED: paper mode only."
 
 
 class RecordingSession:
@@ -147,3 +147,14 @@ def test_full_paper_session_makes_no_network_calls(monkeypatch, tmp_path):
     assert rc == 0
     trades = list(tmp_path.rglob("trades.csv"))[0].read_text().strip().splitlines()
     assert len(trades) == 2  # header + one round trip
+
+
+def test_transport_audit_log_flags_attempted_order_calls():
+    t = ReadOnlyTransport(session=RecordingSession())
+    assert not t.order_endpoint_called
+    with pytest.raises(ForbiddenEndpointError):
+        t.request("POST", "/api/v3/brokerage/orders")
+    with pytest.raises(ForbiddenEndpointError):
+        t.post("/api/v3/brokerage/orders", json={})
+    assert t.order_endpoint_called
+    assert all(not ok for _m, _p, ok in t.request_log)
