@@ -1,0 +1,6 @@
+# Read-only Coinbase Advanced market data + paper execution. No order placement.
+requests>=2.31
+PyJWT>=2.7
+cryptography>=41
+websockets>=12
+pytest>=8

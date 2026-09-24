@@ -1,6 +1,17 @@
-.DS_Store
+# --- Secrets: never commit ---
 .env
 .env.*
 *.key
 *.pem
 secrets/
+credentials/
+
+# --- Runtime output (paper-trading records, downloaded market data) ---
+paper_trading/records/
+data/
+
+# --- Python / OS noise ---
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
