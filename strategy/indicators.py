@@ -31,3 +31,21 @@ def highest_high(candles: Sequence[Candle]) -> Decimal:
     if not candles:
         raise ValueError("no candles")
     return max(c.high for c in candles)
+
+
+def ema_step(prev: Decimal | None, value: Decimal, period: int) -> Decimal:
+    """One recursive EMA step, alpha = 2/(period+1). The first value seeds the EMA
+    (equivalent to pandas ``ewm(span=period, adjust=False)``)."""
+    if prev is None:
+        return value
+    alpha = Decimal(2) / (period + 1)
+    return prev + alpha * (value - prev)
+
+
+def ema(values: Sequence[Decimal], period: int) -> Decimal:
+    out = None
+    for v in values:
+        out = ema_step(out, v, period)
+    if out is None:
+        raise ValueError("no values")
+    return out

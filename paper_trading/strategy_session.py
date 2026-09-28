@@ -1,10 +1,13 @@
 """Strategy paper trading: WebSocket trades -> 4H candle aggregator -> Version A -> paper engine -> recorder.
 
 Only the paper engine is used for execution; there is no exchange client in this module.
-Entries: on a 4H candle close that produces ENTER_LONG and no position is open, buy (taker,
-walking the live book) a quantity sized to risk 0.5% of current equity over the 1.5 ATR stop.
-Stop: armed at (entry fill VWAP - stop distance) once the entry fills; triggered by the first live
-trade at or below it; exits with a taker sell of the whole position (partial fills are retried).
+Entry: on a 4H close that produces ENTER_LONG with no position open, buy at the next candle's open
+(= the close event; taker, walking the live book), sized to risk PAPER_RISK_PER_TRADE of current
+equity over the 1.5 ATR stop, hard-capped by available USD.
+Stop: entry fill VWAP - 1.5 ATR, triggered by the first live trade at or below it.
++1R: armed when a live trade reaches entry + 1R (R = 1.5 ATR).
+EMA20 exit: after +1R, a 4H close below EMA20 exits the whole position at the next open.
+Exits are taker sells of the whole position; partial fills are retried.
 """
 from __future__ import annotations
 
@@ -68,6 +71,7 @@ class StrategyStats:
     entries_submitted: int = 0
     entries_rejected: int = 0
     stops_triggered: int = 0
+    ema_exits: int = 0
     events: list = field(default_factory=list)
 
 
@@ -79,6 +83,11 @@ class StrategyTrader:
         self.stats = StrategyStats()
         self.candles: list[tuple[Candle, bool]] = []
         self.stop_price: Optional[Decimal] = None
+        self.entry_price: Optional[Decimal] = None
+        self.r_distance: Optional[Decimal] = None
+        self.one_r_price: Optional[Decimal] = None
+        self.one_r_reached = False
+        self.exit_reason: Optional[str] = None
         self.pending_signal: Optional[Signal] = None
         self.entry_order: Optional[PaperOrder] = None
         self.exit_order: Optional[PaperOrder] = None
@@ -104,6 +113,7 @@ class StrategyTrader:
         self.last_trade_price = trade.price
         for closed in self.agg.on_trade(trade):
             self._on_candle_close(closed, trade.time)
+        self._track_one_r(trade.price, trade.time)
         self._check_stop(trade.price, trade.time)
 
     def on_tick(self, now: datetime) -> None:
@@ -123,7 +133,13 @@ class StrategyTrader:
             self._log("candle_incomplete_not_evaluated", now, start=c.start.isoformat())
             return
         signal = self.strategy.on_candle_close(c)
-        self._log("candle_close", now, start=c.start.isoformat(), o=c.open, h=c.high, l=c.low, c=c.close)
+        self._log("candle_close", now, start=c.start.isoformat(), o=c.open, h=c.high, l=c.low, c=c.close,
+                  ema20=self.strategy.ema_exit, one_r_reached=self.one_r_reached)
+        if self.in_position and self.strategy.should_exit(self.one_r_reached, c):
+            self.stats.ema_exits += 1
+            self._log("ema20_exit", now, close=c.close, ema20=self.strategy.ema_exit)
+            self._exit(now, f"VersionA: 4H close {c.close} < EMA{self.strategy.params.exit_ema} "
+                            f"{self.strategy.ema_exit:.2f} after +1R")
         if signal is None:
             return
         self.stats.signals += 1
@@ -155,18 +171,35 @@ class StrategyTrader:
             return
         self.entry_order, self.pending_signal = order, signal
 
+    def _track_one_r(self, price: Decimal, now: datetime) -> None:
+        if self.one_r_price is not None and not self.one_r_reached and self.in_position and price >= self.one_r_price:
+            self.one_r_reached = True
+            self._log("one_r_reached", now, trade_price=price, one_r=self.one_r_price)
+
     def _check_stop(self, price: Decimal, now: datetime) -> None:
         if self.stop_price is None or not self.in_position:
             return
         if self.exit_order is not None and not self.exit_order.status.terminal:
             return
+        if self.exit_reason is not None and self.exit_reason != "stop":
+            self._exit(now, f"VersionA: retry exit remainder ({self.exit_reason})")   # finish a partial exit
+            return
         if price <= self.stop_price:
             if self.exit_order is None:
                 self.stats.stops_triggered += 1
                 self._log("stop_triggered", now, trade_price=price, stop=self.stop_price)
+            self.exit_reason = "stop"
             self.exit_order = self.engine.submit_market(
                 Side.SELL, base_size=self.engine.account.available_base, now=now,
                 signal=f"VersionA: 1.5 ATR stop {self.stop_price:.2f} hit (trade {price})")
+
+    def _exit(self, now: datetime, label: str) -> None:
+        if self.exit_order is not None and not self.exit_order.status.terminal:
+            return
+        if self.exit_reason is None:
+            self.exit_reason = "ema20"
+        self.exit_order = self.engine.submit_market(Side.SELL, base_size=self.engine.account.available_base,
+                                                    now=now, signal=label)
 
     # ---- engine callbacks ---------------------------------------------------------------------
     def _on_order_closed(self, order: PaperOrder) -> None:
@@ -174,9 +207,14 @@ class StrategyTrader:
         if self.entry_order is not None and order.order_id == self.entry_order.order_id:
             sig, self.entry_order, self.pending_signal = self.pending_signal, None, None
             if order.filled_base > 0:
+                self.entry_price = order.avg_price
+                self.r_distance = sig.stop_distance
                 self.stop_price = order.avg_price - sig.stop_distance
+                self.one_r_price = order.avg_price + self.strategy.params.exit_after_r * sig.stop_distance
+                self.one_r_reached = False
+                self.exit_reason = None
                 self._log("entry_filled", now, qty=order.filled_base, price=order.avg_price,
-                          fees=order.fees, stop=self.stop_price, status=order.status.value)
+                          fees=order.fees, stop=self.stop_price, one_r=self.one_r_price, status=order.status.value)
             else:
                 self.stats.entries_rejected += 1
                 self._log("entry_not_filled", now, reason=order.reason)
@@ -184,7 +222,9 @@ class StrategyTrader:
             self._log("exit_order_closed", now, qty=order.filled_base, price=order.avg_price,
                       fees=order.fees, status=order.status.value)
             if not self.in_position:
-                self.stop_price, self.exit_order = None, None
+                self.stop_price, self.exit_order, self.exit_reason = None, None, None
+                self.entry_price = self.r_distance = self.one_r_price = None
+                self.one_r_reached = False
             # else: remainder stays open; the next trade at/below the stop re-submits the exit
 
     # ---- output -------------------------------------------------------------------------------
@@ -197,8 +237,10 @@ class StrategyTrader:
             "incomplete_candles": self.stats.incomplete_candles, "signals": self.stats.signals,
             "signals_ignored_in_position": self.stats.signals_ignored_in_position,
             "entries_submitted": self.stats.entries_submitted, "entries_rejected": self.stats.entries_rejected,
-            "stops_triggered": self.stats.stops_triggered,
+            "stops_triggered": self.stats.stops_triggered, "ema20_exits": self.stats.ema_exits,
             "position_btc": str(acct.base), "stop_price": str(self.stop_price) if self.stop_price else None,
+            "one_r_price": str(self.one_r_price) if self.one_r_price else None, "one_r_reached": self.one_r_reached,
+            "ema20": f"{self.strategy.ema_exit:.2f}" if self.strategy.ema_exit else None,
             "usd": f"{acct.usd:.2f}", "equity_usd": f"{self.equity(mark):.2f}" if mark else None,
             "mark_price": str(mark) if mark else None,
         }

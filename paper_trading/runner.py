@@ -40,10 +40,11 @@ from paper_trading.recorder import TradeRecorder
 from paper_trading.strategy_session import StrategyTrader, fetch_warmup
 from market_data.candle_aggregator import CandleAggregator
 from risk.limits import RiskLimits
-from strategy.version_a import VersionA
+from strategy.version_a import VersionA, VersionAParams, risk_from_env
 
 log = logging.getLogger("paper_trading")
 LIVE_WS_URL = WS_MARKET_DATA_URL   # tests point this at a local fake server
+WARMUP_4H_CANDLES = 1000           # EMA200 needs a long history to converge (1000 x 4H ~ 167 days)
 
 # Used only when the product endpoint is unreachable (e.g. offline replay). Labelled as such.
 FALLBACK_BTC_USD = ProductSpec("BTC-USD", "BTC", "USD", Decimal("0.00000001"), Decimal("0.01"),
@@ -303,9 +304,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     engine.on_order_closed(recorder.on_order_closed)
     demo = DemoRoundTrip(engine) if args.demo_roundtrip else None
     if args.strategy:
-        strategy = VersionA()
         try:
-            history, forming = fetch_warmup(client, settings.product_id, datetime.now(timezone.utc))
+            risk_fraction = risk_from_env(os.environ.get("PAPER_RISK_PER_TRADE"))
+        except (ValueError, ArithmeticError) as exc:
+            print(f"STRATEGY MODE REFUSED: {exc}", file=sys.stderr)
+            return 2
+        strategy = VersionA(VersionAParams(risk_fraction=risk_fraction))
+        try:
+            history, forming = fetch_warmup(client, settings.product_id, datetime.now(timezone.utc),
+                                            n_candles=WARMUP_4H_CANDLES)
         except Exception as exc:  # noqa: BLE001 - report and stop; never trade without warm-up
             print(f"STRATEGY MODE REFUSED: warm-up candles could not be fetched ({type(exc).__name__}).",
                   file=sys.stderr)
@@ -323,7 +330,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         trader.stats.warmup_candles = len(history)
         print(f"STRATEGY: version_a | warm-up {len(history)} completed 4H candles "
               f"(last {history[-1].start:%Y-%m-%d %H:%M} UTC; forming candle excluded) | "
-              f"paper start ${start_usd} | fees maker {fees.maker_rate} taker {fees.taker_rate} "
+              f"paper start ${start_usd} | risk/trade {format((risk_fraction * 100).normalize(), 'f')}% of equity (cash-capped) | fees maker {fees.maker_rate} taker {fees.taker_rate} "
               f"({'Coinbase' if diag.fees else 'UNCONFIRMED default'})", flush=True)
     session = Session(diag, engine, monitor, demo, trader)
 

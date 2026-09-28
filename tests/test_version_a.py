@@ -24,8 +24,9 @@ from paper_trading.account import PaperAccount
 from paper_trading.recorder import TradeRecorder
 from paper_trading.strategy_session import StrategyTrader, fetch_warmup
 from risk.limits import RiskLimits
-from strategy.indicators import atr_wilder, true_ranges
-from strategy.version_a import VersionA, VersionAParams, breakout, size_position
+from strategy.indicators import atr_wilder, ema, true_ranges
+from strategy.version_a import (DEFAULT_PAPER_RISK, VersionA, VersionAParams, breakout, ema_exit, risk_from_env,
+                                size_position, trend_ok)
 from tests.conftest import make_book
 
 D = Decimal
@@ -40,6 +41,16 @@ def cndl(start, o, h, l, c, v=1):
 
 def flat_history(n=30, end=B, high=60100, low=59900, close=60000):
     return [cndl(end - (n - i) * H4, close, high, low, close) for i in range(n)]
+
+
+def trend_history(n=250, end=B, base=50000, step=20):
+    """Steady uptrend: close_i = base + step*i, range 200 (TR = 200 every candle). Last close 54980."""
+    return [cndl(end - (n - i) * H4, base + step * i - step, base + step * i + 100, base + step * i - 100,
+                 base + step * i) for i in range(n)]
+
+
+LAST_CLOSE = D(50000 + 20 * 249)          # 54980
+LAST_HIGH = LAST_CLOSE + 100              # 55080 = highest high of the previous 20
 
 
 # ---- breakout ------------------------------------------------------------------------------------
@@ -57,15 +68,37 @@ def test_breakout_uses_previous_20_highs_only():
 
 def test_strategy_signal_needs_history_and_carries_stop():
     s = VersionA()
-    assert s.on_candle_close(cndl(B, 1, 2, 1, 2)) is None            # no history yet
+    assert s.params.min_history == 200                               # EMA200 trend filter
+    s.warm_up(trend_history(199))
+    assert s.on_candle_close(cndl(B, LAST_CLOSE, 99999, LAST_CLOSE, 99999)) is None   # 199 < 200 history
     s = VersionA()
-    s.warm_up(flat_history(30))
-    sig = s.on_candle_close(cndl(B, 60000, 60500, 60000, 60500))
-    assert sig.action == "ENTER_LONG" and sig.reference_price == D(60100)
+    s.warm_up(trend_history(250))
+    sig = s.on_candle_close(cndl(B, LAST_CLOSE, 55500, LAST_CLOSE, 55500))
+    assert sig.action == "ENTER_LONG" and sig.reference_price == LAST_HIGH
     assert sig.stop_distance == D("1.5") * sig.atr
-    assert s.on_candle_close(cndl(B + H4, 60500, 60500, 60400, 60450)) is None
+    assert s.on_candle_close(cndl(B + H4, 55500, 55500, 55400, 55450)) is None      # no new high
     with pytest.raises(ValueError):
         s.on_candle_close(cndl(B, 1, 1, 1, 1))                      # out-of-order candle
+
+
+def test_trend_filter_blocks_breakouts_in_a_downtrend():
+    down = [cndl(B - (250 - i) * H4, 70000 - 20 * i, 70000 - 20 * i + 100, 70000 - 20 * i - 100, 70000 - 20 * i)
+            for i in range(250)]
+    s = VersionA()
+    s.warm_up(down)
+    brk = cndl(B, 65020, 65600, 65000, 65600)          # > highest of the previous 20 highs (65500)
+    assert breakout(list(s.history), brk) is not None
+    assert s.on_candle_close(brk) is None and s.ema_slow > brk.close          # blocked: close < EMA200
+    s2 = VersionA(VersionAParams(trend_filter=False))
+    s2.warm_up(down)
+    assert s2.on_candle_close(brk) is not None                               # same candle without the filter
+
+
+def test_trend_ok_requires_both_conditions():
+    assert trend_ok(D(105), ema_fast=D(104), ema_slow=D(100))
+    assert not trend_ok(D(99), D(104), D(100))          # close below EMA200
+    assert not trend_ok(D(105), D(99), D(100))          # EMA50 below EMA200
+    assert not trend_ok(D(100), D(104), D(100))         # strictly greater
 
 
 # ---- ATR -----------------------------------------------------------------------------------------
@@ -87,6 +120,17 @@ def test_true_range_and_wilder_atr_by_hand():
         atr_wilder(cs[:3], period=3)
 
 
+def test_ema_by_hand():
+    assert ema([D(1), D(2), D(3)], 3) == D("2.25")          # alpha 0.5: 1 -> 1.5 -> 2.25
+    assert ema([D(10)], 20) == D(10)                         # seeded with the first value
+
+
+def test_ema_exit_condition():
+    assert not ema_exit(False, D(90), D(100))               # +1R not reached: never exits
+    assert ema_exit(True, D(99.99), D(100))
+    assert not ema_exit(True, D(100), D(100))               # close must be BELOW EMA20
+
+
 def test_atr_gap_uses_previous_close():
     cs = [cndl(B, 100, 101, 99, 100), cndl(B + H4, 120, 121, 119, 120)]
     assert true_ranges(cs) == [D(21)]
@@ -96,7 +140,8 @@ def test_atr_gap_uses_previous_close():
 
 def test_position_size_risks_half_percent_of_equity():
     d = size_position(D(1000), stop_distance=D(300), price=D(30000), available_usd=D(1000),
-                      taker_fee_rate=D("0.006"), base_increment=D("0.00000001"))   # ~$500 notional fits
+                      taker_fee_rate=D("0.006"), base_increment=D("0.00000001"),
+                      risk_fraction=D("0.005"))                                     # ~$500 notional fits
     assert d.risk_usd == D(5) and not d.cash_capped
     assert d.base == D("0.01666666")                     # 5/300 rounded DOWN to 1e-8
     assert d.base * D(300) <= D(5)
@@ -108,6 +153,29 @@ def test_position_size_never_exceeds_available_cash():
     assert d.cash_capped and d.base < d.risk_based_base
     assert d.base * D(60000) * D("1.006") <= D(400)
     assert size_position(D(1000), D(10), D(60000), D(-5), D("0.006"), D("0.00000001")).base == 0
+
+
+def test_default_paper_risk_is_15_percent_and_cash_is_the_hard_cap():
+    assert DEFAULT_PAPER_RISK == D("0.15") and VersionAParams().risk_fraction == D("0.15")
+    d = size_position(D(1000), stop_distance=D(334), price=D(55505), available_usd=D(1000),
+                      taker_fee_rate=D("0.006"), base_increment=D("0.00000001"))
+    assert d.risk_usd == D(150) and d.cash_capped                      # 0.449 BTC wanted, ~0.0179 affordable
+    assert d.base * D(55505) * D("1.006") <= D(1000)
+    wide = size_position(D(1000), stop_distance=D(20000), price=D(60000), available_usd=D(1000),
+                         taker_fee_rate=D("0.006"), base_increment=D("0.00000001"))
+    assert not wide.cash_capped and wide.base == D("0.0075")          # 150 / 20000: $450 notional, fits
+
+
+@pytest.mark.parametrize("value,expected", [(None, "0.15"), ("", "0.15"), ("0.15", "0.15"), (" 0.2 ", "0.2"),
+                                            ("1", "1")])
+def test_risk_from_env(value, expected):
+    assert risk_from_env(value) == D(expected)
+
+
+@pytest.mark.parametrize("bad", ["0", "-0.1", "1.5", "abc", "15%"])
+def test_risk_from_env_rejects_invalid(bad):
+    with pytest.raises((ValueError, ArithmeticError)):
+        risk_from_env(bad)
 
 
 # ---- aggregator ----------------------------------------------------------------------------------
@@ -208,26 +276,26 @@ def test_aggregate_boundary_exactly_at_now():
 FEES = FeeSchedule(D("0.004"), D("0.006"), "test: Coinbase-reported rates")
 
 
-def make_trader(product, usd=1000, slippage_bps=0):
+def make_trader(product, usd=1000, slippage_bps=0, risk="0.005"):
     eng = PaperExecutionEngine(product, FEES, PaperAccount(usd=D(usd)),
                                PaperExecutionConfig(latency_ms=250, taker_extra_slippage_bps=D(slippage_bps)),
                                risk=RiskLimits(max_order_notional_usd=D("1e12"), max_drawdown_fraction=None))
     rec = TradeRecorder()
     eng.on_fill(rec.on_fill)
     eng.on_order_closed(rec.on_order_closed)
-    strat = VersionA()
-    strat.warm_up(flat_history(30))
+    strat = VersionA(VersionAParams(risk_fraction=D(risk)))
+    strat.warm_up(trend_history(250))
     agg = CandleAggregator()
-    agg.set_last_close(D(60000))
-    agg.seed(cndl(B, 60000, 60000, 60000, 60000, 0), as_of=B)
+    agg.set_last_close(LAST_CLOSE)
+    agg.seed(cndl(B, LAST_CLOSE, LAST_CLOSE, LAST_CLOSE, LAST_CLOSE, 0), as_of=B)
     return StrategyTrader(strat, eng, agg), eng, rec
 
 
 def breakout_then_entry(trader, eng):
-    book = make_book([(60500, 5), (60490, 5)], [(60501, 0.005), (60510, 5)])
+    book = make_book([(55500, 5), (55490, 5)], [(55501, 0.005), (55510, 5)])
     eng.on_book(book, B + timedelta(minutes=1))
-    trader.on_trade(tr(B + timedelta(minutes=2), 60500, tid="b1"))            # breakout candle forms
-    trader.on_trade(tr(B + H4 + timedelta(seconds=1), 60500, tid="b2"))       # closes it -> signal -> buy
+    trader.on_trade(tr(B + timedelta(minutes=2), 55500, tid="b1"))            # breakout candle forms
+    trader.on_trade(tr(B + H4 + timedelta(seconds=1), 55500, tid="b2"))       # closes it -> signal -> buy
     assert trader.entry_order is not None and trader.entry_order.status is OrderStatus.PENDING
     eng.on_book(book, B + H4 + timedelta(seconds=2))                          # after 250 ms latency
     return book
@@ -237,12 +305,13 @@ def test_breakout_entry_sizes_to_risk_and_arms_fixed_stop(product):
     trader, eng, rec = make_trader(product)
     breakout_then_entry(trader, eng)
     assert trader.in_position and trader.stop_price is not None
-    sig_atr = (D(200) * 13 + D(500)) / 14                                     # Wilder step with TR=500
+    sig_atr = (D(200) * 13 + D(520)) / 14                                     # Wilder step with TR=520
     entry = eng.fills[0]
     assert trader.stop_price == pytest.approx(entry.price - D("1.5") * sig_atr, abs=D("1e-9"))
     risk = eng.account.base * (entry.price - trader.stop_price)
     assert D("4.9") < risk <= D("5.0001")                                    # 0.5% of $1000 equity
-    trader.on_trade(tr(B + H4 + timedelta(minutes=10), 60300, tid="n1"))     # above stop: hold
+    assert trader.one_r_price == entry.price + D("1.5") * sig_atr and not trader.one_r_reached
+    trader.on_trade(tr(B + H4 + timedelta(minutes=10), trader.stop_price + 50, tid="n1"))   # above stop: hold
     assert trader.exit_order is None
 
 
@@ -266,8 +335,8 @@ def test_fee_and_slippage_accounting_is_exact(product):
     trader.on_trade(tr(B + H4 + timedelta(hours=1), stop - 1, tid="s1"))
     eng.on_book(make_book([(stop - 5, 5)], [(stop + 5, 5)]), B + H4 + timedelta(hours=1, seconds=1))
     buy, sell = eng.fills
-    # entry swept 0.005 @ 60501 then the rest @ 60510 (depth), plus 5 bps configured slippage
-    assert buy.price > D(60501) and buy.slippage > 0 and buy.spread_cost > 0
+    # entry swept 0.005 @ 55501 then the rest @ 55510 (depth), plus 5 bps configured slippage
+    assert buy.price > D(55501) and buy.slippage > 0 and buy.spread_cost > 0
     assert buy.fee == buy.price * buy.base * D("0.006") and sell.fee == sell.price * sell.base * D("0.006")
     t = rec.trades[0]
     assert t.fees == buy.fee + sell.fee
@@ -280,17 +349,92 @@ def test_signal_ignored_while_in_position_and_no_pyramiding(product):
     trader, eng, rec = make_trader(product)
     book = breakout_then_entry(trader, eng)
     qty = eng.account.base
-    trader.on_trade(tr(B + H4 + timedelta(minutes=30), 61000, tid="c1"))
-    trader.on_trade(tr(B + 2 * H4 + timedelta(seconds=1), 61000, tid="c2"))   # another breakout close
+    trader.on_trade(tr(B + H4 + timedelta(minutes=30), 56000, tid="c1"))
+    trader.on_trade(tr(B + 2 * H4 + timedelta(seconds=1), 56000, tid="c2"))   # another breakout close
     assert trader.stats.signals == 2 and trader.stats.signals_ignored_in_position == 1
     assert eng.account.base == qty and len(eng.fills) == 1
 
 
 def test_no_market_data_means_no_entry(product):
     trader, eng, rec = make_trader(product)
-    trader.on_trade(tr(B + timedelta(minutes=2), 60500, tid="b1"))
-    trader.on_trade(tr(B + H4 + timedelta(seconds=1), 60500, tid="b2"))
+    trader.on_trade(tr(B + timedelta(minutes=2), 55500, tid="b1"))
+    trader.on_trade(tr(B + H4 + timedelta(seconds=1), 55500, tid="b2"))
     assert trader.stats.signals == 1 and trader.entry_order is None and eng.fills == []
+
+
+def run_candles(trader, eng, first_bucket, closes, one_trade_high=None, book_price=None):
+    """Drive whole 4H candles: trades at each close price (optionally a higher intrabar trade),
+    then a trade just after the bucket end closes the candle. Keeps a book around the price."""
+    for k, px in enumerate(closes):
+        start = first_bucket + k * H4
+        px = D(str(px))
+        bp = D(str(book_price)) if book_price else px
+        eng.on_book(make_book([(bp - 1, 5)], [(bp, 5)]), start + timedelta(seconds=30))
+        if one_trade_high is not None and k == 0:
+            trader.on_trade(tr(start + timedelta(minutes=5), one_trade_high, tid=f"h{start}"))
+        trader.on_trade(tr(start + timedelta(minutes=10), px, tid=f"p{start}"))
+        trader.on_trade(tr(start + H4 + timedelta(milliseconds=1), px, tid=f"x{start}"))
+
+
+def test_ema20_exit_is_not_armed_before_plus_one_r(product):
+    trader, eng, rec = make_trader(product)
+    breakout_then_entry(trader, eng)
+    stop, one_r = trader.stop_price, trader.one_r_price
+    run_candles(trader, eng, B + H4, [one_r - 40] * 15)                 # rises, but never reaches +1R
+    dip = (stop + trader.strategy.ema_exit) / 2                          # between stop and EMA20
+    assert stop < dip < trader.strategy.ema_exit
+    run_candles(trader, eng, B + 16 * H4, [dip])
+    assert trader.in_position and not trader.one_r_reached and trader.stats.ema_exits == 0 and not rec.trades
+
+
+def test_ema20_exit_after_plus_one_r_exits_full_position_at_next_open(product):
+    trader, eng, rec = make_trader(product)
+    breakout_then_entry(trader, eng)
+    stop, one_r = trader.stop_price, trader.one_r_price
+    qty = eng.account.base
+    run_candles(trader, eng, B + H4, [one_r - 40] * 15, one_trade_high=one_r + 1)   # +1R touched intrabar
+    assert trader.one_r_reached and trader.in_position                   # closes stayed above EMA20
+    dip = (stop + trader.strategy.ema_exit) / 2
+    close_time = B + 17 * H4
+    run_candles(trader, eng, B + 16 * H4, [dip], book_price=dip)         # 4H close below EMA20
+    assert trader.stats.ema_exits == 1 and trader.stats.stops_triggered == 0
+    exit_order = eng.orders[sorted(eng.orders)[-1]]
+    assert exit_order.side.value == "SELL" and exit_order.base_size == qty
+    assert exit_order.submitted_at == close_time + timedelta(milliseconds=1)        # at the next open
+    eng.on_book(make_book([(dip - 1, 5)], [(dip, 5)]), close_time + timedelta(seconds=1))
+    assert not trader.in_position and trader.stop_price is None and not trader.one_r_reached
+    t = rec.trades[0]
+    assert "EMA20" in t.exit_signal and "after +1R" in t.exit_signal and t.quantity == qty
+    assert t.execution_type == "TAKER/TAKER" and t.net_pnl == t.gross_pnl - t.fees
+
+
+def test_close_above_ema20_after_plus_one_r_keeps_holding(product):
+    trader, eng, rec = make_trader(product)
+    breakout_then_entry(trader, eng)
+    run_candles(trader, eng, B + H4, [trader.one_r_price + 100] * 5)
+    assert trader.one_r_reached and trader.in_position and trader.stats.ema_exits == 0
+
+
+def test_stop_remains_active_after_plus_one_r(product):
+    trader, eng, rec = make_trader(product)
+    breakout_then_entry(trader, eng)
+    stop = trader.stop_price
+    trader.on_trade(tr(B + H4 + timedelta(minutes=5), trader.one_r_price + 1, tid="up"))
+    assert trader.one_r_reached
+    trader.on_trade(tr(B + H4 + timedelta(minutes=30), stop - 1, tid="down"))      # no breakeven: stop unchanged
+    assert trader.stats.stops_triggered == 1 and trader.stop_price == stop
+    eng.on_book(make_book([(stop - 5, 5)], [(stop + 5, 5)]), B + H4 + timedelta(minutes=31))
+    assert not trader.in_position and "stop" in rec.trades[0].exit_signal
+
+
+def test_fifteen_percent_risk_entry_is_cash_capped_and_never_negative(product):
+    trader, eng, rec = make_trader(product, risk="0.15")
+    breakout_then_entry(trader, eng)
+    buy = eng.fills[0]
+    assert buy.notional + buy.fee <= D(1000) and eng.account.usd >= 0 and eng.account.held_usd == 0
+    assert buy.notional > D(900)                                          # essentially all cash (no leverage)
+    events = [e for e in trader.stats.events if e["event"] == "signal"]
+    assert events[0]["cash_capped"] == "True" and D(events[0]["risk_usd"]) == D(150)
 
 
 # ---- safety --------------------------------------------------------------------------------------
@@ -415,9 +559,10 @@ def strategy_cli(monkeypatch, tmp_path, capsys, trade_ws_port):
 def test_cli_strategy_mode_runs_warms_up_and_reports(strategy_cli, tmp_path):
     rc, elapsed, out, calls = strategy_cli("--strategy", "version_a", "--duration", "2")
     assert rc == 0 and elapsed < 5
-    assert "STRATEGY: version_a | warm-up 60 completed 4H candles" in out.out and "forming candle excluded" in out.out
+    assert "STRATEGY: version_a | warm-up 1000 completed 4H candles" in out.out and "forming candle excluded" in out.out
     assert "paper start $1000" in out.out and "fees maker 0.004 taker 0.006 (Coinbase)" in out.out
-    assert "strategy.warmup_candles: 60" in out.out and "order_endpoint_called: NO" in out.out
+    assert "risk/trade 15% of equity (cash-capped)" in out.out
+    assert "strategy.warmup_candles: 1000" in out.out and "order_endpoint_called: NO" in out.out
     assert "strategy.equity_usd: 1000.00" in out.out
     assert not any("/orders" in c for c in calls)
     assert list(tmp_path.rglob("candles_4h.csv")) and list(tmp_path.rglob("strategy_events.jsonl"))
@@ -440,7 +585,16 @@ def test_cli_refuses_without_coinbase_fees(strategy_cli):
 
 def test_cli_refuses_without_enough_warmup(strategy_cli):
     rc, _e, out, _c = strategy_cli("--strategy", "version_a", "--duration", "1", candles_ok=False)
-    assert rc == 5 and "need 20" in out.err
+    assert rc == 5 and "need 200" in out.err
+
+
+def test_cli_paper_risk_env(strategy_cli, monkeypatch):
+    monkeypatch.setenv("PAPER_RISK_PER_TRADE", "0.2")
+    rc, _e, out, _c = strategy_cli("--strategy", "version_a", "--duration", "1")
+    assert rc == 0 and "risk/trade 20% of equity" in out.out
+    monkeypatch.setenv("PAPER_RISK_PER_TRADE", "1.5")
+    rc, _e, out, calls = strategy_cli("--strategy", "version_a", "--duration", "1")
+    assert rc == 2 and "PAPER_RISK_PER_TRADE" in out.err
 
 
 def test_cli_strategy_still_requires_paper_mode(strategy_cli, monkeypatch):

@@ -33,7 +33,7 @@ paper_trading/   account.py         $500 cash-only paper account with order hold
 risk/            limits.py          pre-trade limits (max notional, open orders, long-only, DD halt)
 strategy/        base.py            Signal / Strategy interface only; no rules in this phase
 backtest/        candle_fill_model.py  plan §5 maker-fill + cost conventions (shared definitions)
-tests/           190 tests, incl. no-live-order proofs; fixtures/ has a SYNTHETIC WS replay file
+tests/           211 tests, incl. no-live-order proofs; fixtures/ has a SYNTHETIC WS replay file
 ```
 
 The data flow is one way:
@@ -254,7 +254,7 @@ pip install -r requirements.txt
 cp .env.example .env            # then edit .env locally: paste your VIEW-ONLY CDP key name and secret
 chmod 600 .env                  # readable only by you; .env is git-ignored
 export PAPER_MODE=true
-python3 -m pytest -q            # 190 tests
+python3 -m pytest -q            # 211 tests
 python3 -m exchange.check_auth  # authenticated read-only connectivity check
 python3 -m paper_trading --duration 60     # 60-second authenticated paper-data test
 python3 -m paper_trading --duration 300    # 5-minute session
@@ -290,21 +290,32 @@ PAPER_MODE=true python3 -m paper_trading --strategy version_a --duration 28800  
 - Coinbase WS `market_trades` → `market_data/candle_aggregator.py` (4H, UTC-aligned) → `strategy/version_a.py` → `PaperExecutionEngine` → `TradeRecorder`.
 - The exchange client is used only for the startup reads and the warm-up.
 
-**Rules as implemented** (the research code that originally defined Version A isn't in this repo; this is the specification given):
+**Rules as implemented.** They come from the original backtester as you reported it (`btc_backtester.zip`: `run_higher_tf.py` `BASE` flags and `config.py` `StrategyParams`). That zip is **not** in this repository, so the details listed under "Not verified" below are open.
 
 | Rule | Implementation |
 |---|---|
-| Evaluation | Only when a 4H candle closes (on the first trade after the boundary, or 2 s after it by clock) |
-| Entry | Close > highest high of the PREVIOUS 20 completed 4H candles, when no position is open. Taker buy, walking the live book |
-| Stop | Entry fill VWAP − 1.5 × ATR. ATR is Wilder ATR(14) on 4H candles as of the signal candle (the ATR period wasn't specified; 14 is the standard, set in `VersionAParams`). The stop is **fixed**, not trailed |
-| Stop trigger | The first live trade at or below the stop fires a taker sell of the whole position. If the book can't fill it all, the remainder is retried on the next trade |
-| Sizing | 0.5% of current equity ÷ stop distance, entered in full at once. Capped so that quantity × ask × (1 + taker fee) × 1.002 ≤ available USD. Rounded down to the product increment |
-| Not included | Filters, RSI, breakeven, partial exits, time exits, pyramiding, leverage, margin, shorts |
+| Evaluation | Only when a 4H candle closes |
+| Trend filter | 4H close > EMA200 **and** EMA50 > EMA200 |
+| Entry | Close > highest high of the PREVIOUS 20 completed 4H candles. Full position at the next 4H open: a taker buy at the close event, walking the live book |
+| Initial stop | Entry fill VWAP − 1.5 × ATR(14), Wilder. R = 1.5 × ATR |
+| +1R | Armed when a live trade reaches entry + 1R |
+| EMA20 exit | After +1R, a 4H **close** below EMA20 exits the full position at the next 4H open (taker) |
+| Stop | Stays active until exit (no breakeven). The first live trade at or below it fires a taker sell of the whole position |
+| Sizing | `PAPER_RISK_PER_TRADE` (default **0.15**) × current equity ÷ stop distance. **Available USD is the hard cap**: no leverage, and at 15% it is almost always the binding limit, so entries are about 100% of cash |
+| Not used | RSI, extension filter, 20EMA entry, partials, breakeven, trailing/10-candle exit, shorts, margin |
+| Loss-streak pause / drawdown controls | Enabled in the backtester (`risk_controls=True`) but **not implemented here**. Their rules and parameters weren't provided, and nothing like them existed in paper mode before |
 
-- **Warm-up:** 60 completed 4H candles are built from 1H candles via `exchange/client.py get_candles()`, in chunks under 350 candles per request.
+**Not verified against the source** (please confirm from `run_higher_tf.py`):
+- whether +1R counts intrabar highs (implemented: any live trade price) or only closes;
+- whether the exit EMA is on 4H closes (implemented) or on 1H (`ema_1h=20`);
+- the EMA seeding method (implemented: first value, like pandas `adjust=False`; this is negligible after the 1000-candle warm-up);
+- whether the stop is checked before the EMA exit when both happen in the same candle;
+- whether a new entry may happen on the same candle as an exit.
+
+- **Warm-up:** 1000 completed 4H candles (so EMA200 has converged) are built from 1H candles via `exchange/client.py get_candles()`, in chunks under 350 candles per request.
   - The forming 4H candle is **excluded** from history. It only seeds the live aggregator, so the first live candle is complete.
   - Buckets with a missing hour are dropped.
-  - The session refuses to start with fewer than 20 completed candles.
+  - The session refuses to start with fewer than 200 completed candles.
 - **Fees:** your account's rates from `/transaction_summary` are required. Without them the session refuses to start (exit code 4) unless you pass `--allow-default-fees`.
 - **Fills:** spread and slippage come from the live book walk plus latency (`--latency-ms`, default 250) and `--extra-slippage-bps`.
 - **Paper account:** `--start-usd`, or `PAPER_START_USD`, default $1,000. Tracks USD and BTC; cash-only, never negative.
@@ -320,7 +331,7 @@ PAPER_MODE=true python3 -m paper_trading --strategy version_a --duration 28800  
 ## 10. How to verify that NO live orders can be placed
 
 ```bash
-python -m pytest -q                               # 190 tests
+python -m pytest -q                               # 211 tests
 python -m pytest -q tests/test_no_live_orders.py tests/test_paper_mode.py
 grep -rn "brokerage/orders\|/orders\"" --include=*.py . | grep -v tests/   # only exchange/endpoints.py (the blocklist)
 ```
