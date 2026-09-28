@@ -37,7 +37,8 @@ def test_ed25519_jwt_from_official_sdk_has_required_claims_and_headers():
 def test_auth_delegates_to_official_coinbase_jwt_generator(monkeypatch):
     calls = []
     monkeypatch.setattr(auth._official, "build_rest_jwt", lambda uri, k, s: calls.append(uri) or "tok")
-    assert build_jwt(KEY_NAME, "x", uri="GET api.coinbase.com/p") == "tok" and calls == ["GET api.coinbase.com/p"]
+    secret, _pub = cdp_style_ed25519_secret()
+    assert build_jwt(KEY_NAME, secret, uri="GET api.coinbase.com/p") == "tok" and calls == ["GET api.coinbase.com/p"]
     assert auth._official.__name__ == "coinbase.jwt_generator"
 
 

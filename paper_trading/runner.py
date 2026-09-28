@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from config.logging_setup import setup_logging
-from config.settings import REPO_ROOT, PaperModeError, Settings, load_settings
+from config.settings import REPO_ROOT, PaperModeError, Settings, env_file_conflicts, load_settings
 from exchange.client import CoinbaseAdvancedClient, summarize_balances
 from exchange.endpoints import WS_MARKET_DATA_URL
 from exchange.transport import ReadOnlyTransport
@@ -168,6 +168,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     transport = ReadOnlyTransport(settings.credentials)
     client = CoinbaseAdvancedClient(transport=transport)
     diag = run_rest_checks(client, settings.has_credentials, settings.product_id, offline=bool(args.replay))
+
+    if diag.credentials_loaded and not diag.authenticated:
+        print("Authentication failed (" + diag.errors.get("authentication", "unknown") +
+              "). Diagnose with: python3 -m exchange.check_auth", file=sys.stderr)
+    for name in env_file_conflicts():
+        if name.startswith("COINBASE_") or name == "PAPER_MODE":
+            print(f"WARNING: {name} in your shell differs from .env; the shell value is used "
+                  f"(run 'unset {name}').", file=sys.stderr)
 
     refusal = None
     if diag.permissions is not None:

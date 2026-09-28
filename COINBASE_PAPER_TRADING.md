@@ -33,7 +33,7 @@ paper_trading/   account.py         $500 cash-only paper account with order hold
 risk/            limits.py          pre-trade limits (max notional, open orders, long-only, DD halt)
 strategy/        base.py            Signal / Strategy interface only; no rules in this phase
 backtest/        candle_fill_model.py  plan §5 maker-fill + cost conventions (shared definitions)
-tests/           126 tests, incl. no-live-order proofs; fixtures/ has a SYNTHETIC WS replay file
+tests/           157 tests, incl. no-live-order proofs; fixtures/ has a SYNTHETIC WS replay file
 ```
 
 The data flow is one way:
@@ -56,6 +56,40 @@ The paper engine never holds a reference to the exchange client. There is no `Li
 - **A fresh 2-minute token is made per REST request.** Tokens and secrets are never logged.
 - **Error handling:** if the secret can't be parsed, the error message never contains the secret and the original error isn't chained. HTTP errors carry only the path and status code, never response bodies or headers.
 - **No credentials on the market-data connection:** WebSocket market-data channels are public, so no JWT is sent there.
+
+### Accepted credential formats (normalized in `exchange/credentials.py`)
+
+The CDP portal issues an Ed25519 secret as **standard base64 of 64 bytes** (32-byte seed ‖ 32-byte public key). That is 88 characters ending in `==`. Before the official SDK signs, the loader:
+- **Repairs formatting damage:**
+  - surrounding quotes, including macOS “smart quotes”;
+  - a trailing `\` (the `.env` was saved as Rich Text by TextEdit);
+  - inline `# comments`;
+  - CR/LF, literal `\n`, BOM or zero-width characters;
+  - missing `=` padding, the URL-safe alphabet, or values wrapped over several lines.
+- **Checks the key:** confirms the second half of the 64 bytes really is the matching public key, which catches partial copies.
+- **Also accepts other forms:** a 32-byte seed, PKCS8 PEM or DER (Ed25519), SEC1 PEM (legacy EC), the CDP key JSON (`{"name"|"id", "privateKey"}`), or `COINBASE_API_KEY_FILE=/path/to/cdp_api_key.json`. Keep that JSON **outside** the repo; `cdp_api_key*.json` is git-ignored anyway.
+- **Handles problem `.env` files:**
+  - multi-line quoted values are supported;
+  - a Rich Text `.env` is rejected with instructions to re-save it as plain text;
+  - if a variable is set in your **shell** and differs from `.env`, you get a warning (names only), because the shell value wins.
+
+Error messages describe only shape, e.g. "decodes to 40 bytes". They never contain the value.
+
+### Connectivity check
+
+```bash
+python3 -m exchange.check_auth
+```
+
+Read-only. It prints:
+- where each variable came from;
+- the key-name format and the secret format, plus any repairs made;
+- clock skew against Coinbase server time;
+- the result of `GET /key_permissions` (view/trade/transfer flags) and `GET /accounts` (count only);
+- `Order endpoints called: NO`;
+- a final `RESULT` line.
+
+On HTTP 401 it lists the usual causes. Exit code: 0 if OK, 1 on failure, 2 if PAPER_MODE isn't true.
 
 ### Required environment variables
 
@@ -220,7 +254,8 @@ pip install -r requirements.txt
 cp .env.example .env            # then edit .env locally: paste your VIEW-ONLY CDP key name and secret
 chmod 600 .env                  # readable only by you; .env is git-ignored
 export PAPER_MODE=true
-python3 -m pytest -q            # 126 tests
+python3 -m pytest -q            # 157 tests
+python3 -m exchange.check_auth  # authenticated read-only connectivity check
 python3 -m paper_trading --duration 60     # 60-second authenticated paper-data test
 python3 -m paper_trading --duration 300    # 5-minute session
 ```
@@ -240,7 +275,7 @@ No strategy is attached, so a normal session produces **0 simulated trades** by 
 ## 10. How to verify that NO live orders can be placed
 
 ```bash
-python -m pytest -q                               # 126 tests
+python -m pytest -q                               # 157 tests
 python -m pytest -q tests/test_no_live_orders.py tests/test_paper_mode.py
 grep -rn "brokerage/orders\|/orders\"" --include=*.py . | grep -v tests/   # only exchange/endpoints.py (the blocklist)
 ```

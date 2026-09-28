@@ -45,7 +45,11 @@ class Diagnostics:
 
 def _reason(exc: Exception) -> str:
     status = getattr(exc, "status", None)
-    return f"{type(exc).__name__}" + (f" (HTTP {status})" if status else "")
+    if status:
+        return f"{type(exc).__name__} (HTTP {status})"
+    if isinstance(exc, ExchangeAPIError):
+        return f"{type(exc).__name__} (network)"
+    return f"{type(exc).__name__}: {exc}"   # CredentialFormatError messages are shape-only
 
 
 def run_rest_checks(client: ExchangeClient, credentials_loaded: bool, product_id: str = "BTC-USD",

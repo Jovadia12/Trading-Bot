@@ -13,6 +13,7 @@ from decimal import Decimal
 from typing import Iterable, Optional
 
 from config.settings import Credentials, require_paper_mode
+from exchange.credentials import CredentialFormatError
 from exchange.endpoints import API_PREFIX
 from exchange.errors import ExchangeAPIError, LiveOrderExecutionDisabled
 from exchange.transport import ReadOnlyTransport
@@ -129,6 +130,8 @@ class CoinbaseAdvancedClient(ExchangeClient):
         if self._auth:
             try:
                 return ProductSpec.from_api(self._get(f"/products/{product_id}"))
+            except CredentialFormatError:
+                log.warning("API secret unusable; using public product endpoint")
             except ExchangeAPIError as exc:
                 if exc.status not in (401, 403) and exc.status is not None:
                     raise

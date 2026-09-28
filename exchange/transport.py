@@ -12,7 +12,7 @@ from typing import Any, Optional
 import requests
 
 from config.settings import Credentials
-from exchange.auth import CredentialFormatError, build_jwt, format_jwt_uri
+from exchange.auth import build_jwt, format_jwt_uri
 from exchange.endpoints import API_HOST, ORDER_PATH_MARKER, match_read_only
 from exchange.errors import ExchangeAPIError, ForbiddenEndpointError
 
@@ -46,11 +46,9 @@ class ReadOnlyTransport:
         if requires_auth:
             if not self._credentials:
                 raise ExchangeAPIError(f"{path} requires COINBASE_API_KEY/COINBASE_API_SECRET")
-            try:
-                token = build_jwt(self._credentials.api_key, self._credentials.api_secret,
-                                  uri=format_jwt_uri("GET", path))
-            except CredentialFormatError as exc:
-                raise ExchangeAPIError(str(exc)) from None
+            # CredentialFormatError (a ValueError; shape-only message) propagates to the caller
+            token = build_jwt(self._credentials.api_key, self._credentials.api_secret,
+                              uri=format_jwt_uri("GET", path))
             headers["Authorization"] = f"Bearer {token}"
         clean = {k: v for k, v in (params or {}).items() if v is not None}
         url = f"https://{API_HOST}{path}"

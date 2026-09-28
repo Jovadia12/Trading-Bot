@@ -13,8 +13,11 @@ T0 = datetime(2026, 9, 24, 12, 0, 0, tzinfo=timezone.utc)
 @pytest.fixture(autouse=True)
 def _paper_mode_and_no_creds(monkeypatch):
     monkeypatch.setenv("PAPER_MODE", "true")
-    for k in ("COINBASE_API_KEY", "COINBASE_API_SECRET", "ALLOW_TRADE_SCOPED_KEY"):
+    for k in ("COINBASE_API_KEY", "COINBASE_API_SECRET", "COINBASE_API_KEY_FILE", "ALLOW_TRADE_SCOPED_KEY"):
         monkeypatch.delenv(k, raising=False)
+    # never read a developer's real .env during tests
+    import config.settings as cs
+    monkeypatch.setattr(cs, "DEFAULT_ENV_FILE", cs.REPO_ROOT / "tests" / "fixtures" / "does-not-exist.env")
 
 
 def at(seconds: float) -> datetime:
