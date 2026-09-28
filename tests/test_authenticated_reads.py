@@ -142,7 +142,7 @@ def live_like(monkeypatch):
     fake = FakeCoinbase()
     monkeypatch.setattr(requests.Session, "get", lambda self, url, **kw: fake.get(url, **kw))
 
-    async def fake_stream(self, stop_after=None):
+    async def fake_stream(self, stop_after=None, clock=None):
         for ev in replay_file("tests/fixtures/ws_btcusd_synthetic.jsonl"):
             self.state.messages += 1
             yield ev

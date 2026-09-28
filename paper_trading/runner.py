@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import json
 import logging
+import signal
 import sys
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -30,12 +31,14 @@ from execution.models import Side
 from execution.paper_engine import PaperExecutionConfig, PaperExecutionEngine
 from market_data.models import ProductSpec
 from market_data.spread_monitor import SpreadMonitor
-from market_data.websocket_feed import CoinbaseMarketDataFeed, FeedEvent, replay_file
+from market_data.websocket_feed import (CLOSE_TIMEOUT_S, CoinbaseMarketDataFeed, FeedEvent, SessionClock,
+                                       replay_file)
 from paper_trading.account import PaperAccount
 from paper_trading.diagnostics import Diagnostics, run_rest_checks
 from paper_trading.recorder import TradeRecorder
 
 log = logging.getLogger("paper_trading")
+LIVE_WS_URL = WS_MARKET_DATA_URL   # tests point this at a local fake server
 
 # Used only when the product endpoint is unreachable (e.g. offline replay). Labelled as such.
 FALLBACK_BTC_USD = ProductSpec("BTC-USD", "BTC", "USD", Decimal("0.00000001"), Decimal("0.01"),
@@ -116,6 +119,8 @@ class Session:
         self.stats: dict = {}
         self.printed = False
         self.last_book = None
+        self.end_reason = "not started"
+        self.elapsed_s = 0.0
 
     def print_diagnostics(self) -> None:
         if not self.printed:
@@ -130,9 +135,66 @@ class Session:
                 self.diag.market_data = True
                 self.print_diagnostics()
 
-    async def run_live(self, feed: CoinbaseMarketDataFeed, duration: float) -> None:
-        async for ev in feed.stream(stop_after=duration):
-            self.on_event(ev)
+    async def run_live(self, feed: CoinbaseMarketDataFeed, clock: SessionClock,
+                       progress_s: float = 0.0) -> None:
+        """Consume the live feed until the clock expires, Ctrl+C, or the feed fails.
+
+        The feed runs in its own task; this supervisor wakes at least once per second, so the
+        session ends within ~1 s of the deadline (plus a bounded socket close) no matter what the
+        network does. Sets ``self.end_reason``; re-raises feed errors after cleanup.
+        """
+        loop = asyncio.get_running_loop()
+        stop = asyncio.Event()
+        interrupted = {"count": 0}
+
+        def on_sigint():
+            interrupted["count"] += 1
+            if interrupted["count"] >= 2:        # second Ctrl+C: hard stop
+                raise KeyboardInterrupt
+            print("\nCtrl+C received: stopping market data and writing the report "
+                  "(press Ctrl+C again to force quit)...", file=sys.stderr, flush=True)
+            stop.set()
+
+        sigint_installed = False
+        try:
+            loop.add_signal_handler(signal.SIGINT, on_sigint)
+            sigint_installed = True
+        except (NotImplementedError, RuntimeError, ValueError):   # non-main thread / Windows
+            pass
+
+        async def consume():
+            async for ev in feed.stream(clock=clock):
+                self.on_event(ev)
+
+        task = asyncio.create_task(consume(), name="market-data")
+        next_progress = progress_s if progress_s > 0 else float("inf")
+        try:
+            while True:
+                if task.done():
+                    self.end_reason = "duration reached" if clock.expired() else "market-data feed ended"
+                    break
+                if stop.is_set():
+                    self.end_reason = "interrupted (Ctrl+C)"
+                    break
+                if clock.expired():
+                    self.end_reason = "duration reached"
+                    break
+                await asyncio.wait({task}, timeout=min(1.0, max(0.05, clock.remaining())))
+                if clock.elapsed() >= next_progress:
+                    print(f"[paper] {clock.elapsed():.0f}/{clock.duration:.0f}s elapsed, "
+                          f"{feed.state.messages} market-data messages", file=sys.stderr, flush=True)
+                    next_progress += progress_s
+        finally:
+            if not task.done():
+                task.cancel()
+                done, _ = await asyncio.wait({task}, timeout=CLOSE_TIMEOUT_S + 3.0)
+                if not done:
+                    log.error("market-data task did not stop within the close timeout; abandoning it")
+            if sigint_installed:
+                loop.remove_signal_handler(signal.SIGINT)
+        self.elapsed_s = clock.elapsed()
+        if task.done() and not task.cancelled() and task.exception() is not None:
+            raise task.exception()
 
     def run_replay(self, events: Iterable[FeedEvent]) -> None:
         for ev in events:
@@ -145,7 +207,10 @@ def _fmt(x, places=2):
 
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="paper_trading", description="Coinbase BTC-USD paper trading (no live orders)")
-    ap.add_argument("--duration", type=float, default=60.0, help="live session length in seconds")
+    ap.add_argument("--duration", type=float, default=60.0,
+                    help="total session length in seconds (wall clock, from launch); the report is then printed")
+    ap.add_argument("--progress-seconds", type=float, default=300.0,
+                    help="print a progress line to stderr every N seconds (0 = off)")
     ap.add_argument("--replay", help="replay recorded WebSocket messages (JSONL) instead of connecting (offline)")
     ap.add_argument("--demo-roundtrip", action="store_true", help="scripted execution smoke test (not a strategy)")
     ap.add_argument("--start-usd", type=Decimal, default=Decimal(500))
@@ -163,6 +228,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     assert settings.paper_mode is True
+    if args.duration <= 0:
+        print("--duration must be > 0", file=sys.stderr)
+        return 2
+    clock = SessionClock(args.duration)          # the whole session, REST checks included
     setup_logging(logging.INFO if args.verbose else logging.WARNING)
 
     transport = ReadOnlyTransport(settings.credentials)
@@ -205,9 +274,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         if args.replay:
             session.run_replay(replay_file(args.replay, settings.product_id))
+            session.end_reason = "replay finished"
         else:
-            feed = CoinbaseMarketDataFeed(settings.product_id, max_retries=2)
-            asyncio.run(session.run_live(feed, args.duration))
+            feed = CoinbaseMarketDataFeed(settings.product_id, url=LIVE_WS_URL, max_retries=2)
+            asyncio.run(session.run_live(feed, clock, args.progress_seconds))
+    except KeyboardInterrupt:
+        session.end_reason = "force quit (second Ctrl+C)"
     except Exception as exc:  # report, don't crash
         error = f"{type(exc).__name__}: {exc}"
         log.error("market-data session ended with error: %s", error)
@@ -233,6 +305,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         "paper_orders": len(recorder.orders),
         "simulated_trades": len(recorder.trades),
         "order_endpoint_called": "YES" if transport.order_endpoint_called else "NO",
+        "session_end": session.end_reason,
+        "session_seconds": round(clock.elapsed(), 1),
         "rest_requests": len(transport.request_log),
         "refused_requests": sum(1 for _m, _p, ok in transport.request_log if not ok),
     }

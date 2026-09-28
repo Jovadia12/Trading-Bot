@@ -33,7 +33,7 @@ paper_trading/   account.py         $500 cash-only paper account with order hold
 risk/            limits.py          pre-trade limits (max notional, open orders, long-only, DD halt)
 strategy/        base.py            Signal / Strategy interface only; no rules in this phase
 backtest/        candle_fill_model.py  plan §5 maker-fill + cost conventions (shared definitions)
-tests/           157 tests, incl. no-live-order proofs; fixtures/ has a SYNTHETIC WS replay file
+tests/           165 tests, incl. no-live-order proofs; fixtures/ has a SYNTHETIC WS replay file
 ```
 
 The data flow is one way:
@@ -254,7 +254,7 @@ pip install -r requirements.txt
 cp .env.example .env            # then edit .env locally: paste your VIEW-ONLY CDP key name and secret
 chmod 600 .env                  # readable only by you; .env is git-ignored
 export PAPER_MODE=true
-python3 -m pytest -q            # 157 tests
+python3 -m pytest -q            # 165 tests
 python3 -m exchange.check_auth  # authenticated read-only connectivity check
 python3 -m paper_trading --duration 60     # 60-second authenticated paper-data test
 python3 -m paper_trading --duration 300    # 5-minute session
@@ -266,6 +266,14 @@ Optional flags:
 - `--verbose`: INFO logs, still redacted.
 - `--replay tests/fixtures/ws_btcusd_synthetic.jsonl`: offline run on SYNTHETIC data.
 
+**Session length and stopping:**
+- `--duration N` is the total session length in seconds, measured from launch and including the startup checks.
+- The clock uses the larger of wall-clock and monotonic time, so a Mac that sleeps mid-session still stops on schedule.
+- A supervisor wakes every second. At the deadline it cancels the market-data task and closes the WebSocket with a bounded handshake (at most ~2.5 s, then the socket is aborted). It then prints the SESSION REPORT, which includes `session_end` and `session_seconds`.
+- Reconnect back-off and connect timeouts never run past the deadline.
+- **Ctrl+C once:** stops cleanly and still writes the report. **Twice:** force-quits.
+- `--progress-seconds` (default 300) prints a progress line to stderr so long runs aren't silent.
+
 Outputs go to `paper_trading/records/<run-id>/` (git-ignored): `summary.json`, `spreads.csv`, `trades.csv` and `orders.jsonl`. None of them contain credentials or balances.
 
 No strategy is attached, so a normal session produces **0 simulated trades** by design. It measures spread and depth, and exercises the pipeline.
@@ -275,7 +283,7 @@ No strategy is attached, so a normal session produces **0 simulated trades** by 
 ## 10. How to verify that NO live orders can be placed
 
 ```bash
-python -m pytest -q                               # 157 tests
+python -m pytest -q                               # 165 tests
 python -m pytest -q tests/test_no_live_orders.py tests/test_paper_mode.py
 grep -rn "brokerage/orders\|/orders\"" --include=*.py . | grep -v tests/   # only exchange/endpoints.py (the blocklist)
 ```
