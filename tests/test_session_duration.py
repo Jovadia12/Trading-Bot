@@ -52,6 +52,12 @@ class _ServerThread:
 
 async def _busy_server():
     async def handler(ws):
+        try:
+            await _busy(ws)
+        except websockets.exceptions.ConnectionClosed:
+            return
+
+    async def _busy(ws):
         seq = 1
         await ws.send(json.dumps(_snapshot()))
         while True:

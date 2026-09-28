@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import signal
 import sys
 from datetime import datetime, timezone
@@ -36,6 +37,10 @@ from market_data.websocket_feed import (CLOSE_TIMEOUT_S, CoinbaseMarketDataFeed,
 from paper_trading.account import PaperAccount
 from paper_trading.diagnostics import Diagnostics, run_rest_checks
 from paper_trading.recorder import TradeRecorder
+from paper_trading.strategy_session import StrategyTrader, fetch_warmup
+from market_data.candle_aggregator import CandleAggregator
+from risk.limits import RiskLimits
+from strategy.version_a import VersionA
 
 log = logging.getLogger("paper_trading")
 LIVE_WS_URL = WS_MARKET_DATA_URL   # tests point this at a local fake server
@@ -114,8 +119,8 @@ def handle_event(ev: FeedEvent, engine, monitor, demo, stats) -> None:
 class Session:
     """Wires market data -> paper engine; prints the diagnostic block once market data status is known."""
 
-    def __init__(self, diag: Diagnostics, engine, monitor, demo):
-        self.diag, self.engine, self.monitor, self.demo = diag, engine, monitor, demo
+    def __init__(self, diag: Diagnostics, engine, monitor, demo, trader=None):
+        self.diag, self.engine, self.monitor, self.demo, self.trader = diag, engine, monitor, demo, trader
         self.stats: dict = {}
         self.printed = False
         self.last_book = None
@@ -129,6 +134,8 @@ class Session:
 
     def on_event(self, ev: FeedEvent) -> None:
         handle_event(ev, self.engine, self.monitor, self.demo, self.stats)
+        if self.trader is not None and ev.kind == "trade":
+            self.trader.on_trade(ev.payload)
         if ev.kind == "book" and ev.payload.ready and not ev.payload.is_crossed():
             self.last_book = ev.payload
             if not self.diag.market_data:
@@ -180,6 +187,8 @@ class Session:
                     self.end_reason = "duration reached"
                     break
                 await asyncio.wait({task}, timeout=min(1.0, max(0.05, clock.remaining())))
+                if self.trader is not None:
+                    self.trader.on_tick(datetime.now(timezone.utc))   # closes 4H candles in quiet markets
                 if clock.elapsed() >= next_progress:
                     print(f"[paper] {clock.elapsed():.0f}/{clock.duration:.0f}s elapsed, "
                           f"{feed.state.messages} market-data messages", file=sys.stderr, flush=True)
@@ -213,7 +222,14 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="print a progress line to stderr every N seconds (0 = off)")
     ap.add_argument("--replay", help="replay recorded WebSocket messages (JSONL) instead of connecting (offline)")
     ap.add_argument("--demo-roundtrip", action="store_true", help="scripted execution smoke test (not a strategy)")
-    ap.add_argument("--start-usd", type=Decimal, default=Decimal(500))
+    ap.add_argument("--strategy", choices=["version_a"], default=None,
+                    help="paper-trade a strategy (default: infrastructure-only session, no strategy)")
+    ap.add_argument("--start-usd", type=Decimal, default=None,
+                    help="paper starting USD (infra mode default 500; strategy mode default "
+                         "$PAPER_START_USD or 1000)")
+    ap.add_argument("--allow-default-fees", action="store_true",
+                    help="strategy mode only: run even if Coinbase fee data could not be read "
+                         "(uses the labelled UNCONFIRMED default)")
     ap.add_argument("--latency-ms", type=int, default=250)
     ap.add_argument("--extra-slippage-bps", type=Decimal, default=Decimal(0))
     ap.add_argument("--show-balances", action="store_true", help="print your real USD/BTC available balances locally")
@@ -260,14 +276,56 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     fees = diag.fee_schedule or DEFAULT_US_ENTRY_TIER
     product = diag.product_spec or FALLBACK_BTC_USD
-    engine = PaperExecutionEngine(product, fees, PaperAccount(usd=args.start_usd),
+    trader = None
+    if args.strategy:
+        if args.replay or args.demo_roundtrip:
+            print("--strategy cannot be combined with --replay or --demo-roundtrip", file=sys.stderr)
+            return 2
+        if not diag.fees and not args.allow_default_fees:
+            print("STRATEGY MODE REFUSED: Coinbase fee data was not read (Fee data: FAIL). Strategy P&L must "
+                  "use your actual Coinbase fees. Fix authentication (python3 -m exchange.check_auth) or pass "
+                  "--allow-default-fees to use the UNCONFIRMED default.", file=sys.stderr)
+            return 4
+        start_usd = args.start_usd if args.start_usd is not None else Decimal(os.environ.get("PAPER_START_USD", "1000"))
+        risk = RiskLimits(max_order_notional_usd=Decimal("1e12"), max_open_orders=2, long_only=True,
+                          max_drawdown_fraction=None)   # the spec has no drawdown filter; cash limits still apply
+    else:
+        start_usd = args.start_usd if args.start_usd is not None else Decimal(500)
+        risk = None
+    if start_usd <= 0:
+        print("--start-usd must be > 0", file=sys.stderr)
+        return 2
+    engine = PaperExecutionEngine(product, fees, PaperAccount(usd=start_usd),
                                   PaperExecutionConfig(latency_ms=args.latency_ms,
-                                                       taker_extra_slippage_bps=args.extra_slippage_bps))
+                                                       taker_extra_slippage_bps=args.extra_slippage_bps), risk=risk)
     recorder, monitor = TradeRecorder(), SpreadMonitor()
     engine.on_fill(recorder.on_fill)
     engine.on_order_closed(recorder.on_order_closed)
     demo = DemoRoundTrip(engine) if args.demo_roundtrip else None
-    session = Session(diag, engine, monitor, demo)
+    if args.strategy:
+        strategy = VersionA()
+        try:
+            history, forming = fetch_warmup(client, settings.product_id, datetime.now(timezone.utc))
+        except Exception as exc:  # noqa: BLE001 - report and stop; never trade without warm-up
+            print(f"STRATEGY MODE REFUSED: warm-up candles could not be fetched ({type(exc).__name__}).",
+                  file=sys.stderr)
+            return 5
+        if len(history) < strategy.params.min_history:
+            print(f"STRATEGY MODE REFUSED: only {len(history)} completed 4H candles from warm-up; "
+                  f"need {strategy.params.min_history}.", file=sys.stderr)
+            return 5
+        strategy.warm_up(history)
+        aggregator = CandleAggregator()
+        aggregator.set_last_close(history[-1].close)
+        if forming is not None:
+            aggregator.seed(forming, as_of=datetime.now(timezone.utc))
+        trader = StrategyTrader(strategy, engine, aggregator)
+        trader.stats.warmup_candles = len(history)
+        print(f"STRATEGY: version_a | warm-up {len(history)} completed 4H candles "
+              f"(last {history[-1].start:%Y-%m-%d %H:%M} UTC; forming candle excluded) | "
+              f"paper start ${start_usd} | fees maker {fees.maker_rate} taker {fees.taker_rate} "
+              f"({'Coinbase' if diag.fees else 'UNCONFIRMED default'})", flush=True)
+    session = Session(diag, engine, monitor, demo, trader)
 
     feed = None
     error = None
@@ -310,9 +368,16 @@ def main(argv: Optional[list[str]] = None) -> int:
         "rest_requests": len(transport.request_log),
         "refused_requests": sum(1 for _m, _p, ok in transport.request_log if not ok),
     }
+    if trader is not None:
+        report["strategy"] = trader.snapshot()
+        report["realized_pnl_usd"] = f"{sum((t.net_pnl for t in recorder.trades), Decimal(0)):.2f}"
     print("\n--- SESSION REPORT (paper mode; no orders placed) ---")
     for k, v in report.items():
-        print(f"{k}: {v}")
+        if isinstance(v, dict) and k == "strategy":
+            for sk, sv in v.items():
+                print(f"strategy.{sk}: {sv}")
+        else:
+            print(f"{k}: {v}")
     if args.show_balances and diag.accounts is not None:
         for cur, amt in summarize_balances(diag.accounts).items():
             print(f"available {cur}: {amt}")   # local terminal only; never written to disk
@@ -321,6 +386,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     out = Path(args.records_dir) / run_id
     recorder.write(out)
     monitor.to_csv(out / "spreads.csv")
+    if trader is not None:
+        trader.write(out)
     summary = {
         "run_id": run_id, "source": f"replay:{args.replay}" if args.replay else "live:" + WS_MARKET_DATA_URL,
         "diagnostics": diag.lines(), "diagnostic_errors": diag.errors, "report": report,

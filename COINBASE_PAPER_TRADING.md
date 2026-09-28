@@ -33,7 +33,7 @@ paper_trading/   account.py         $500 cash-only paper account with order hold
 risk/            limits.py          pre-trade limits (max notional, open orders, long-only, DD halt)
 strategy/        base.py            Signal / Strategy interface only; no rules in this phase
 backtest/        candle_fill_model.py  plan §5 maker-fill + cost conventions (shared definitions)
-tests/           165 tests, incl. no-live-order proofs; fixtures/ has a SYNTHETIC WS replay file
+tests/           190 tests, incl. no-live-order proofs; fixtures/ has a SYNTHETIC WS replay file
 ```
 
 The data flow is one way:
@@ -254,7 +254,7 @@ pip install -r requirements.txt
 cp .env.example .env            # then edit .env locally: paste your VIEW-ONLY CDP key name and secret
 chmod 600 .env                  # readable only by you; .env is git-ignored
 export PAPER_MODE=true
-python3 -m pytest -q            # 165 tests
+python3 -m pytest -q            # 190 tests
 python3 -m exchange.check_auth  # authenticated read-only connectivity check
 python3 -m paper_trading --duration 60     # 60-second authenticated paper-data test
 python3 -m paper_trading --duration 300    # 5-minute session
@@ -280,10 +280,47 @@ No strategy is attached, so a normal session produces **0 simulated trades** by 
 
 **Cloud note:** the Claude Code cloud container used to build this has no credentials, and its network policy blocks `api.coinbase.com` and `advanced-trade-ws.coinbase.com` (HTTP 403). The authenticated session therefore has to run on your Mac.
 
+## 9b. Strategy paper mode: Version A
+
+```bash
+PAPER_MODE=true python3 -m paper_trading --strategy version_a --duration 28800   # 8 hours
+```
+
+**Pipeline:**
+- Coinbase WS `market_trades` → `market_data/candle_aggregator.py` (4H, UTC-aligned) → `strategy/version_a.py` → `PaperExecutionEngine` → `TradeRecorder`.
+- The exchange client is used only for the startup reads and the warm-up.
+
+**Rules as implemented** (the research code that originally defined Version A isn't in this repo; this is the specification given):
+
+| Rule | Implementation |
+|---|---|
+| Evaluation | Only when a 4H candle closes (on the first trade after the boundary, or 2 s after it by clock) |
+| Entry | Close > highest high of the PREVIOUS 20 completed 4H candles, when no position is open. Taker buy, walking the live book |
+| Stop | Entry fill VWAP − 1.5 × ATR. ATR is Wilder ATR(14) on 4H candles as of the signal candle (the ATR period wasn't specified; 14 is the standard, set in `VersionAParams`). The stop is **fixed**, not trailed |
+| Stop trigger | The first live trade at or below the stop fires a taker sell of the whole position. If the book can't fill it all, the remainder is retried on the next trade |
+| Sizing | 0.5% of current equity ÷ stop distance, entered in full at once. Capped so that quantity × ask × (1 + taker fee) × 1.002 ≤ available USD. Rounded down to the product increment |
+| Not included | Filters, RSI, breakeven, partial exits, time exits, pyramiding, leverage, margin, shorts |
+
+- **Warm-up:** 60 completed 4H candles are built from 1H candles via `exchange/client.py get_candles()`, in chunks under 350 candles per request.
+  - The forming 4H candle is **excluded** from history. It only seeds the live aggregator, so the first live candle is complete.
+  - Buckets with a missing hour are dropped.
+  - The session refuses to start with fewer than 20 completed candles.
+- **Fees:** your account's rates from `/transaction_summary` are required. Without them the session refuses to start (exit code 4) unless you pass `--allow-default-fees`.
+- **Fills:** spread and slippage come from the live book walk plus latency (`--latency-ms`, default 250) and `--extra-slippage-bps`.
+- **Paper account:** `--start-usd`, or `PAPER_START_USD`, default $1,000. Tracks USD and BTC; cash-only, never negative.
+- **Report:** adds `strategy.*` lines (warm-up count, candles closed, signals, entries, stops, position, stop price, equity) and `realized_pnl_usd`.
+- **Records:** `candles_4h.csv` and `strategy_events.jsonl`, next to `trades.csv` and `orders.jsonl`.
+- **End of session:** an open position stays open (no forced exit) and is marked to the mid price in the report.
+- **Persistence:** state isn't carried between sessions; each run starts flat.
+
+**Caveats:**
+- An 8-hour run spans only about 2 candle closes, so 0 trades is the most likely outcome.
+- With a fixed stop and no other exit, a winning position is only ever closed by the stop.
+
 ## 10. How to verify that NO live orders can be placed
 
 ```bash
-python -m pytest -q                               # 165 tests
+python -m pytest -q                               # 190 tests
 python -m pytest -q tests/test_no_live_orders.py tests/test_paper_mode.py
 grep -rn "brokerage/orders\|/orders\"" --include=*.py . | grep -v tests/   # only exchange/endpoints.py (the blocklist)
 ```
