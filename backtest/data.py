@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
@@ -43,8 +44,10 @@ def save_candles(df: pd.DataFrame, path: Path) -> str:
     out.index = epoch_seconds(out.index)
     out.index.name = "time"
     raw = out.to_csv(float_format="%.8g").encode()
-    with open(path, "wb") as fh, gzip.GzipFile(fileobj=fh, mode="wb", mtime=0) as gz:
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "wb") as fh, gzip.GzipFile(fileobj=fh, mode="wb", mtime=0) as gz:
         gz.write(raw)
+    os.replace(tmp, path)          # atomic: a crash never leaves a half-written data file
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 

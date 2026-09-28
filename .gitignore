@@ -19,3 +19,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .DS_Store
+
+# downloader checkpoints (merged into research_data/*.csv.gz on completion)
+research_data/.partial/
+research_data/*.tmp
