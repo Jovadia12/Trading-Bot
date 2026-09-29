@@ -1,0 +1,7 @@
+{
+  "source": "user-confirmed Coinbase fee tier (reported 2026-09-29; not fetched via API by this tool)",
+  "fetched_at": "2026-09-29",
+  "maker_fee_rate": "0.005",
+  "taker_fee_rate": "0.009",
+  "pricing_tier": "Intro"
+}

@@ -58,6 +58,7 @@ def summarize(res: AccountResult, bars_total: int, bar_seconds: int) -> dict:
         "reward_risk": float(t.net[win].mean() / -t.net[~win].mean()) if win.any() and (~win).any() else np.nan,
         "profit_factor": float(gw / gl) if gl > 0 else np.inf,
         "expectancy_usd": float(t.net.mean()), "expectancy_pct": float(t.ret.mean()),
+        "median_trade_pct": float(t.ret.median()),
         "expectancy_r": float(t.r_mult.mean()),
         "gross_profit": float(t.gross.sum()), "fees": float(t.fees.sum()), "slippage": float(t.slippage.sum()),
         "net_profit": float(t.net.sum()), "net_return": final / res.start - 1,

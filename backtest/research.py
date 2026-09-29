@@ -52,6 +52,27 @@ class Protocol:
 P = Protocol()
 
 
+@dataclass(frozen=True)
+class Study:
+    name: str
+    families: list
+    timeframes: list
+    protocol: Protocol
+    out: Path
+    extra_checks: bool = False      # neighbourhood robustness + best-year dependence (HTF study)
+
+
+def _studies() -> dict:
+    from backtest.strategies_htf import HTF_FAMILIES, HTF_TIMEFRAMES
+    return {
+        "intraday": Study("intraday", FAMILIES, TIMEFRAMES, Protocol(), OUT),
+        # Pre-registered in HTF_STRATEGY_PROTOCOL.md before this study was run.
+        "htf": Study("htf", HTF_FAMILIES, HTF_TIMEFRAMES,
+                     Protocol(min_train_trades=60, min_val_trades=15, accept_trades=150),
+                     OUT / "htf", extra_checks=True),
+    }
+
+
 def neighbours(family: Family, combo: dict) -> list[dict]:
     out = []
     for k, vals in family.grid.items():
@@ -157,6 +178,10 @@ def num(r, k, missing):
 
 def acceptance(r) -> tuple[bool, list[str]]:
     why = []
+    if "neighbour_median_net_pf" in r and not (num(r, "neighbour_median_net_pf", 0) >= P.robust_neighbor_pf):
+        why.append(f"parameter neighbourhood median PF < {P.robust_neighbor_pf}")
+    if "pf_without_best_year" in r and not (num(r, "pf_without_best_year", 0) > 1.0):
+        why.append("edge depends on a single calendar year")
     if not r.get("val_pass"): why.append("validation gate")
     if not (num(r, "oos_profit_factor", 0) >= P.accept_pf): why.append(f"OOS PF < {P.accept_pf}")
     if not (num(r, "oos_expectancy_pct", -1) > 0): why.append("OOS expectancy <= 0")
@@ -170,11 +195,17 @@ def acceptance(r) -> tuple[bool, list[str]]:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Pre-registered BTC strategy research")
-    ap.add_argument("--tf", nargs="+", default=TIMEFRAMES, choices=TIMEFRAMES)
-    ap.add_argument("--families", nargs="+", default=[f.key for f in FAMILIES])
-    ap.add_argument("--out", default=str(OUT))
+    ap.add_argument("--study", default="intraday", choices=["intraday", "htf"])
+    ap.add_argument("--tf", nargs="+", default=None)
+    ap.add_argument("--families", nargs="+", default=None)
+    ap.add_argument("--out", default=None)
     args = ap.parse_args(argv)
-    out = Path(args.out)
+    study = _studies()[args.study]
+    global P
+    P = study.protocol
+    args.tf = args.tf or study.timeframes
+    args.families = args.families or [f.key for f in study.families]
+    out = Path(args.out) if args.out else study.out
     out.mkdir(parents=True, exist_ok=True)
     base = data_path("5m")
     if not base.is_file() and not all(data_path(tf).is_file() for tf in args.tf):
@@ -184,7 +215,7 @@ def main(argv=None) -> int:
               "No results were produced.", file=sys.stderr)
         return 3
     costs = default_costs()
-    fams = [f for f in FAMILIES if f.key in args.families]
+    fams = [f for f in study.families if f.key in args.families]
     t_start = time.time()
     log = lambda *a: print(*a, flush=True)
     log(f"costs: maker {costs.maker_fee:.4%} taker {costs.taker_fee:.4%} half-spread {costs.half_spread:.4%} "
@@ -219,9 +250,24 @@ def main(argv=None) -> int:
                 res, _r, bars = run(df, fam, chosen, w, costs)
                 m = summarize(res, bars, TF_SECONDS[tf])
                 row.update({f"{label}_{k}": v for k, v in m.items()})
-                if label == "full":
-                    g, _r2, gb = run(df, fam, chosen, None, ZERO)
-                    row["full_gross_pf"] = summarize(g, gb, TF_SECONDS[tf]).get("profit_factor")
+                if label in ("full", "oos"):
+                    g, _r2, gb = run(df, fam, chosen, w, ZERO)
+                    row[f"{label}_gross_pf"] = summarize(g, gb, TF_SECONDS[tf]).get("profit_factor")
+                if label == "full" and study.extra_checks and len(res.trades):
+                    tr = res.trades
+                    yearly = tr.groupby(tr.exit_time.dt.year).net.sum()
+                    rest = tr[tr.exit_time.dt.year != yearly.idxmax()]
+                    gl = -rest.net[rest.net <= 0].sum()
+                    row["best_year"] = int(yearly.idxmax())
+                    row["best_year_share_of_net"] = float(yearly.max() / tr.net.sum()) if tr.net.sum() > 0 else np.nan
+                    row["pf_without_best_year"] = float(rest.net[rest.net > 0].sum() / gl) if gl > 0 else np.nan
+            if study.extra_checks:
+                nb_pfs = []
+                for c in neighbours(fam, chosen):
+                    rn, _x, bn = run(df, fam, c, None, costs)
+                    nb_pfs.append(min(summarize(rn, bn, TF_SECONDS[tf]).get("profit_factor", 0) or 0, 10))
+                row["neighbour_median_net_pf"] = float(np.median(nb_pfs)) if nb_pfs else np.nan
+                row["neighbour_net_pfs"] = json.dumps([round(x, 2) for x in nb_pfs])
             row["val_pass"] = (row.get("val_trades", 0) >= P.min_val_trades and row.get("val_profit_factor", 0) >= P.val_pf_gate
                                and row.get("val_expectancy_pct", -1) > 0)
             row["status"] = "validation PASS" if row["val_pass"] else "validation fail"
@@ -238,7 +284,7 @@ def main(argv=None) -> int:
     if wf_pool.empty and "val_profit_factor" in summ:
         wf_pool = summ.dropna(subset=["val_profit_factor"]).sort_values("val_profit_factor", ascending=False).head(3)
         informational = True
-    fam_by_key = {f.key: f for f in FAMILIES}
+    fam_by_key = {f.key: f for f in study.families}
     wf_results = {}
     for _, r in wf_pool.iterrows():
         m, folds, res = walk_forward(frames[r.tf], r.tf, fam_by_key[r.family], costs, log)
@@ -257,9 +303,9 @@ def main(argv=None) -> int:
     summ.to_csv(out / "strategy_summary.csv", index=False)
 
     winners = summ[summ.accepted == True]
-    lines = [f"# BTC Strategy Research Report", "",
+    lines = [f"# BTC Strategy Research Report -- study `{study.name}` ({', '.join(args.tf)})", "",
              f"Generated {pd.Timestamp.now('UTC'):%Y-%m-%d %H:%M} UTC in {time.time() - t_start:.0f}s by `python3 -m backtest.research` "
-             "(pre-registered protocol: STRATEGY_RESEARCH_PROTOCOL.md).", "",
+             f"(pre-registered protocol: {'HTF_STRATEGY_PROTOCOL.md' if study.name == 'htf' else 'STRATEGY_RESEARCH_PROTOCOL.md'}).", "",
              f"**Costs:** maker {costs.maker_fee:.2%}, taker {costs.taker_fee:.2%}, half-spread {costs.half_spread:.3%}, "
              f"slippage {costs.slippage:.3%} (+{costs.stop_slippage:.3%} on stops) -- {costs.source}. "
              "Spread/slippage are ASSUMED until measured.", "", "## Data", ""]
@@ -279,6 +325,29 @@ def main(argv=None) -> int:
                      f"{fmt(r.get('full_net_return'), True, 1)} | {fmt(r.get('full_max_drawdown'), True, 1)} | {fmt(r.get('full_sharpe'))} | "
                      f"${fmt(r.get('full_fees'), d=0)} | ${fmt(r.get('full_slippage'), d=0)} | {fmt(r.get('oos_profit_factor'))} | "
                      f"{fmt(r.get('wf_profit_factor'))} | {'YES' if r.get('accepted') else 'no: ' + r.get('rejection_reasons', '')} |")
+    sel = summ[summ.apply(has_params, axis=1)] if len(summ) else summ
+    if len(sel):
+        lines += ["", "## Detailed metrics of every selected configuration (1% risk, after costs)", "",
+                  "| Strategy | TF | Split | Trades | Win% | PF before costs | PF after costs | Avg trade | Median trade | "
+                  "Net return | Max DD | Sharpe | Sortino | Avg dur (h) | Exposure | Fees | Slippage | Longest losing streak |",
+                  "|" + "---|" * 18]
+        for r in sel.to_dict("records"):
+            for sp in ("train", "val", "oos", "full"):
+                gp = fmt(r.get(f"{sp}_gross_pf")) if sp in ("oos", "full") else "–"
+                lines.append(f"| {r['family']} {r['params']} | {r['tf']} | {sp} | {r.get(f'{sp}_trades', 0):.0f} | "
+                             f"{fmt(r.get(f'{sp}_win_rate'), True, 1)} | {gp} | {fmt(r.get(f'{sp}_profit_factor'))} | "
+                             f"{fmt(r.get(f'{sp}_expectancy_pct'), True, 3)} | {fmt(r.get(f'{sp}_median_trade_pct'), True, 3)} | "
+                             f"{fmt(r.get(f'{sp}_net_return'), True, 1)} | {fmt(r.get(f'{sp}_max_drawdown'), True, 1)} | "
+                             f"{fmt(r.get(f'{sp}_sharpe'))} | {fmt(r.get(f'{sp}_sortino'))} | {fmt(r.get(f'{sp}_avg_duration_h'), d=1)} | "
+                             f"{fmt(r.get(f'{sp}_exposure'), True, 1)} | ${fmt(r.get(f'{sp}_fees'), d=0)} | ${fmt(r.get(f'{sp}_slippage'), d=0)} | "
+                             f"{r.get(f'{sp}_longest_loss_streak', 'n/a')} |")
+        if study.extra_checks:
+            lines += ["", "## Robustness checks (full history, after costs)", "",
+                      "| Strategy | TF | Neighbour net PFs | Neighbour median PF | Best year | Best-year share of net | PF without best year |",
+                      "|---|---|---|---|---|---|---|"]
+            for r in sel.to_dict("records"):
+                lines.append(f"| {r['family']} {r['params']} | {r['tf']} | {r.get('neighbour_net_pfs')} | {fmt(r.get('neighbour_median_net_pf'))} | "
+                             f"{r.get('best_year', 'n/a')} | {fmt(r.get('best_year_share_of_net'), True, 0)} | {fmt(r.get('pf_without_best_year'))} |")
     lines += ["", f"Walk-forward pool: {'INFORMATIONAL (no strategy passed validation)' if informational else 'validation passers'}.", ""]
     if winners.empty:
         lines += ["## Verdict", "", "**No strategy met the pre-registered acceptance criteria.** No strategy is recommended; "
