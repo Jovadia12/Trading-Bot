@@ -1,0 +1,94 @@
+{
+  "protocol": {
+    "train_frac": 0.7,
+    "val_frac": 0.15,
+    "risk": 0.01,
+    "start_equity": 10000.0,
+    "val_pf_gate": 1.2,
+    "accept_pf": 1.5,
+    "marginal_pf": 1.25,
+    "max_dd_2pct": 0.3,
+    "best_year_max_share": 0.5,
+    "neighbour_pf": 1.2,
+    "wf_train_days": 730,
+    "wf_test_days": 182,
+    "paper_start": 200.0,
+    "paper_risks": [
+      0.02,
+      0.05,
+      0.1
+    ],
+    "penetration": 0.001
+  },
+  "costs": {
+    "name": "coinbase_small_account",
+    "maker_fee": 0.005,
+    "taker_fee": 0.009,
+    "half_spread": 5e-05,
+    "slippage": 0.0002,
+    "stop_slippage": 0.0005,
+    "source": "user-confirmed Coinbase fee tier (reported 2026-09-29; not fetched via API by this tool) (Intro, 2026-09-29)"
+  },
+  "data": {
+    "4h": {
+      "rows": 21343,
+      "first": "2017-01-01 00:00:00+00:00",
+      "last": "2026-09-28 20:00:00+00:00",
+      "expected_bars": 21348,
+      "missing_bars": 5,
+      "missing_pct": 0.0234,
+      "largest_gap_bars": 3,
+      "duplicate_timestamps": 0,
+      "misaligned_timestamps": 0,
+      "bad_ohlc_rows": 0,
+      "nonpositive_price_rows": 0,
+      "zero_volume_rows": 0,
+      "extreme_return_rows": 0,
+      "splits": {
+        "train": "2017-01-01 00:00..2023-10-27 11:36",
+        "val": "2023-10-27 11:36..2025-04-13 03:48",
+        "oos": "2025-04-13 03:48..2026-09-28 20:00"
+      }
+    },
+    "1h": {
+      "rows": 85339,
+      "first": "2017-01-01 00:00:00+00:00",
+      "last": "2026-09-28 23:00:00+00:00",
+      "expected_bars": 85392,
+      "missing_bars": 53,
+      "missing_pct": 0.0621,
+      "largest_gap_bars": 15,
+      "duplicate_timestamps": 0,
+      "misaligned_timestamps": 0,
+      "bad_ohlc_rows": 0,
+      "nonpositive_price_rows": 0,
+      "zero_volume_rows": 0,
+      "extreme_return_rows": 0,
+      "splits": {
+        "train": "2017-01-01 00:00..2023-10-27 13:42",
+        "val": "2023-10-27 13:42..2025-04-13 06:21",
+        "oos": "2025-04-13 06:21..2026-09-28 23:00"
+      }
+    },
+    "15m": {
+      "rows": 341260,
+      "first": "2017-01-01 00:00:00+00:00",
+      "last": "2026-09-28 23:45:00+00:00",
+      "expected_bars": 341568,
+      "missing_bars": 308,
+      "missing_pct": 0.0902,
+      "largest_gap_bars": 62,
+      "duplicate_timestamps": 0,
+      "misaligned_timestamps": 0,
+      "bad_ohlc_rows": 0,
+      "nonpositive_price_rows": 0,
+      "zero_volume_rows": 0,
+      "extreme_return_rows": 0,
+      "splits": {
+        "train": "2017-01-01 00:00..2023-10-27 14:13",
+        "val": "2023-10-27 14:13..2025-04-13 06:59",
+        "oos": "2025-04-13 06:59..2026-09-28 23:45"
+      }
+    }
+  }
+}
