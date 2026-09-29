@@ -456,14 +456,15 @@ def write_report(out, summ, extras, bh, frames, report, costs, secs):
                      f"{fmt(r.get(f'{sp}_max_drawdown'), True, 1)} | {fmt(r.get(f'{sp}_sharpe'))} | "
                      f"{fmt(r.get(f'{sp}_exposure'), True, 0)} | ${fmt(r.get(f'{sp}_fees'), d=0)} |")
 
+    as_int = lambda v: f"{int(v)}" if isinstance(v, (int, float)) and np.isfinite(v) else "n/a"
     L += ["", "## Robustness (full history, after costs)", "",
           "| Mode | TF | Family | Neighbour PFs | Neighbour median | Best year | Best-year share | PF w/o best year | "
           "Best trade share | Top-3 share | Net w/o top k (k) | Worst trade |", "|" + "---|" * 12]
     for r in summ[has].sort_values(["mode", "tf", "family"]).to_dict("records"):
         L.append(f"| {r['mode']} | {r['tf']} | {r['family']} | {r.get('neighbour_pfs')} | {fmt(r.get('neighbour_median_pf'))} | "
-                 f"{r.get('best_year', 'n/a')} | {fmt(r.get('best_year_share_of_net'), True, 0)} | {fmt(r.get('pf_without_best_year'))} | "
+                 f"{as_int(r.get('best_year'))} | {fmt(r.get('best_year_share_of_net'), True, 0)} | {fmt(r.get('pf_without_best_year'))} | "
                  f"{fmt(r.get('best_trade_share'), True, 0)} | {fmt(r.get('top3_share'), True, 0)} | "
-                 f"${fmt(r.get('net_without_topk'), d=0)} ({r.get('top_k', 'n/a')}) | {fmt(r.get('worst_trade_pct'), True, 1)} |")
+                 f"${fmt(r.get('net_without_topk'), d=0)} ({as_int(r.get('top_k'))}) | {fmt(r.get('worst_trade_pct'), True, 1)} |")
 
     L += ["", "## $200 simulation (15% risk per trade, cash-capped, no leverage, long only, after costs)", "",
           "| Mode | TF | Family | Full: end $ | Return | CAGR | Max DD | Trades | Fees $ | Worst month | Best month | "
