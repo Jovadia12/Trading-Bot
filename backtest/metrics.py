@@ -97,7 +97,7 @@ def by_regime(trades: pd.DataFrame, labels: pd.DataFrame) -> pd.DataFrame:
     if trades.empty:
         return pd.DataFrame()
     day = trades.entry_time.dt.floor("1D")
-    lab = labels.reindex(day.values)
+    lab = labels.reindex(pd.DatetimeIndex(day))   # keep tz: .values would drop UTC and match nothing
     rows = []
     for col in ("trend", "vol"):
         for name in sorted(set(lab[col].dropna())):

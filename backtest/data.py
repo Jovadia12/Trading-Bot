@@ -19,7 +19,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "research_data"
 TF_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200, "4h": 14400, "6h": 21600,
-              "1d": 86400}
+              "1d": 86400, "2d": 172800, "3d": 259200}
 
 
 def epoch_seconds(idx: pd.DatetimeIndex) -> np.ndarray:
@@ -96,8 +96,10 @@ def quality_report(df: pd.DataFrame, tf: str, extreme_ret: float = 0.25) -> Qual
 
 def resample(df: pd.DataFrame, tf: str) -> pd.DataFrame:
     """Aggregate to a higher timeframe (UTC-aligned, left-labelled). Buckets with no source bars are dropped."""
-    rule = {"5m": "5min", "15m": "15min", "30m": "30min", "1h": "1h", "2h": "2h", "4h": "4h", "6h": "6h", "1d": "1D"}[tf]
-    out = df.resample(rule, label="left", closed="left").agg(
+    rule = {"5m": "5min", "15m": "15min", "30m": "30min", "1h": "1h", "2h": "2h", "4h": "4h", "6h": "6h", "1d": "1D",
+            "2d": "48h", "3d": "72h"}[tf]
+    # origin="epoch": multi-day buckets are anchored to 1970-01-01 UTC, independent of where the data starts.
+    out = df.resample(rule, label="left", closed="left", origin="epoch").agg(
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
     return out.dropna(subset=["open"])
 
