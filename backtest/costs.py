@@ -41,5 +41,5 @@ def default_costs(fees_file: Path = DATA_DIR / "fees.json") -> CostModel:
     if fees_file.is_file():
         f = json.loads(fees_file.read_text())
         return replace(base, maker_fee=float(f["maker_fee_rate"]), taker_fee=float(f["taker_fee_rate"]),
-                       source=f"your Coinbase account ({f.get('pricing_tier')}, fetched {f.get('fetched_at')})")
+                       source=f"{f.get('source', 'your Coinbase account')} ({f.get('pricing_tier')}, {f.get('fetched_at')})")
     return base
