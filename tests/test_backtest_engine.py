@@ -276,3 +276,17 @@ def test_research_pipeline_runs_end_to_end_on_synthetic_data(tmp_path, monkeypat
     summ = pd.read_csv(out / "strategy_summary.csv")
     assert not summ.accepted.any()                     # no edge in a random walk after costs
     assert "No strategy met the pre-registered acceptance criteria" in text
+
+
+def test_acceptance_treats_missing_metrics_as_failures():
+    """Regression: a walk-forward with 0 trades yields None metrics; the report crashed on `None > 0`."""
+    from backtest.research import acceptance
+    ok, why = acceptance({"val_pass": True, "oos_profit_factor": 2.0, "oos_expectancy_pct": 0.01,
+                          "wf_profit_factor": None, "wf_expectancy_pct": None, "full_trades": 900,
+                          "full_max_drawdown": float("nan")})
+    assert not ok and "walk-forward PF < 1.5" in why and "walk-forward expectancy <= 0" in why
+    assert "max DD > 25%" in why
+    ok, why = acceptance({"val_pass": True, "oos_profit_factor": 1.8, "oos_expectancy_pct": 0.01,
+                          "wf_profit_factor": 1.6, "wf_expectancy_pct": 0.005, "full_trades": 600,
+                          "full_max_drawdown": 0.2})
+    assert ok and why == []

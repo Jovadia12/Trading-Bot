@@ -1,0 +1,112 @@
+{
+  "costs": {
+    "name": "coinbase_small_account",
+    "maker_fee": 0.005,
+    "taker_fee": 0.009,
+    "half_spread": 5e-05,
+    "slippage": 0.0002,
+    "stop_slippage": 0.0005,
+    "source": "Coinbase Advanced US entry tier (UNCONFIRMED default)"
+  },
+  "protocol": {
+    "train_frac": 0.7,
+    "val_frac": 0.15,
+    "risk": 0.01,
+    "start_equity": 10000.0,
+    "min_train_trades": 100,
+    "min_val_trades": 30,
+    "val_pf_gate": 1.3,
+    "accept_pf": 1.5,
+    "accept_trades": 500,
+    "accept_max_dd": 0.25,
+    "robust_neighbor_pf": 1.2,
+    "wf_train_days": 730,
+    "wf_test_days": 182,
+    "mc_paths": 10000,
+    "seed": 20260928
+  },
+  "data": {
+    "5m": {
+      "rows": 1023585,
+      "first": "2017-01-01 00:00:00+00:00",
+      "last": "2026-09-28 23:55:00+00:00",
+      "expected_bars": 1024704,
+      "missing_bars": 1119,
+      "missing_pct": 0.1092,
+      "largest_gap_bars": 188,
+      "duplicate_timestamps": 0,
+      "misaligned_timestamps": 0,
+      "bad_ohlc_rows": 0,
+      "nonpositive_price_rows": 0,
+      "zero_volume_rows": 0,
+      "extreme_return_rows": 0,
+      "splits": {
+        "train": "2017-01-01 00:00..2023-10-27 14:20",
+        "validation": "2023-10-27 14:20..2025-04-13 07:07",
+        "oos": "2025-04-13 07:07..2026-09-28 23:55"
+      }
+    },
+    "15m": {
+      "rows": 341260,
+      "first": "2017-01-01 00:00:00+00:00",
+      "last": "2026-09-28 23:45:00+00:00",
+      "expected_bars": 341568,
+      "missing_bars": 308,
+      "missing_pct": 0.0902,
+      "largest_gap_bars": 62,
+      "duplicate_timestamps": 0,
+      "misaligned_timestamps": 0,
+      "bad_ohlc_rows": 0,
+      "nonpositive_price_rows": 0,
+      "zero_volume_rows": 0,
+      "extreme_return_rows": 0,
+      "splits": {
+        "train": "2017-01-01 00:00..2023-10-27 14:13",
+        "validation": "2023-10-27 14:13..2025-04-13 06:59",
+        "oos": "2025-04-13 06:59..2026-09-28 23:45"
+      }
+    },
+    "30m": {
+      "rows": 170653,
+      "first": "2017-01-01 00:00:00+00:00",
+      "last": "2026-09-28 23:30:00+00:00",
+      "expected_bars": 170784,
+      "missing_bars": 131,
+      "missing_pct": 0.0767,
+      "largest_gap_bars": 30,
+      "duplicate_timestamps": 0,
+      "misaligned_timestamps": 0,
+      "bad_ohlc_rows": 0,
+      "nonpositive_price_rows": 0,
+      "zero_volume_rows": 0,
+      "extreme_return_rows": 0,
+      "splits": {
+        "train": "2017-01-01 00:00..2023-10-27 14:03",
+        "validation": "2023-10-27 14:03..2025-04-13 06:46",
+        "oos": "2025-04-13 06:46..2026-09-28 23:30"
+      }
+    },
+    "1h": {
+      "rows": 85339,
+      "first": "2017-01-01 00:00:00+00:00",
+      "last": "2026-09-28 23:00:00+00:00",
+      "expected_bars": 85392,
+      "missing_bars": 53,
+      "missing_pct": 0.0621,
+      "largest_gap_bars": 15,
+      "duplicate_timestamps": 0,
+      "misaligned_timestamps": 0,
+      "bad_ohlc_rows": 0,
+      "nonpositive_price_rows": 0,
+      "zero_volume_rows": 0,
+      "extreme_return_rows": 0,
+      "splits": {
+        "train": "2017-01-01 00:00..2023-10-27 13:42",
+        "validation": "2023-10-27 13:42..2025-04-13 06:21",
+        "oos": "2025-04-13 06:21..2026-09-28 23:00"
+      }
+    }
+  },
+  "selections": [],
+  "final": null
+}

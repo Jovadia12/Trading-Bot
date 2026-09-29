@@ -150,6 +150,24 @@ def fmt(x, pct=False, d=2):
     return f"{x * 100:.{d}f}%" if pct else f"{x:,.{d}f}"
 
 
+def num(r, k, missing):
+    """Missing/None/NaN metrics (e.g. zero trades) count as a FAIL via the `missing` default."""
+    v = r.get(k)
+    return missing if v is None or (isinstance(v, float) and np.isnan(v)) else v
+
+def acceptance(r) -> tuple[bool, list[str]]:
+    why = []
+    if not r.get("val_pass"): why.append("validation gate")
+    if not (num(r, "oos_profit_factor", 0) >= P.accept_pf): why.append(f"OOS PF < {P.accept_pf}")
+    if not (num(r, "oos_expectancy_pct", -1) > 0): why.append("OOS expectancy <= 0")
+    if not (num(r, "wf_profit_factor", 0) >= P.accept_pf): why.append(f"walk-forward PF < {P.accept_pf}")
+    if not (num(r, "wf_expectancy_pct", -1) > 0): why.append("walk-forward expectancy <= 0")
+    if not (num(r, "full_trades", 0) >= P.accept_trades): why.append(f"< {P.accept_trades} trades")
+    if not (num(r, "full_max_drawdown", 1) <= P.accept_max_dd): why.append(f"max DD > {P.accept_max_dd:.0%}")
+    return (not why), why
+
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Pre-registered BTC strategy research")
     ap.add_argument("--tf", nargs="+", default=TIMEFRAMES, choices=TIMEFRAMES)
@@ -230,18 +248,10 @@ def main(argv=None) -> int:
         summ.loc[(summ.family == r.family) & (summ.tf == r.tf), "wf_expectancy_pct"] = m.get("expectancy_pct")
         log(f"  walk-forward {r.family} {r.tf}: PF {fmt(m.get('profit_factor'))} over {m.get('trades')} trades")
 
-    def accepted(r) -> tuple[bool, list[str]]:
-        why = []
-        if not r.get("val_pass"): why.append("validation gate")
-        if not (r.get("oos_profit_factor", 0) >= P.accept_pf): why.append(f"OOS PF < {P.accept_pf}")
-        if not (r.get("oos_expectancy_pct", -1) > 0): why.append("OOS expectancy <= 0")
-        if not (r.get("wf_profit_factor", 0) >= P.accept_pf): why.append(f"walk-forward PF < {P.accept_pf}")
-        if not (r.get("wf_expectancy_pct", -1) > 0): why.append("walk-forward expectancy <= 0")
-        if not (r.get("full_trades", 0) >= P.accept_trades): why.append(f"< {P.accept_trades} trades")
-        if not (r.get("full_max_drawdown", 1) <= P.accept_max_dd): why.append(f"max DD > {P.accept_max_dd:.0%}")
-        return (not why), why
-
-    summ["accepted"], summ["rejection_reasons"] = zip(*[accepted(r) if r.get("params") else (False, ["no params"])
+    has_params = lambda r: isinstance(r.get("params"), str) and bool(r.get("params"))
+    summ["accepted"], summ["rejection_reasons"] = zip(*[acceptance(r) if has_params(r) else
+                                                        (False, ["no parameter set profitable after costs on TRAIN "
+                                                                 f"(>= {P.min_train_trades} trades and PF > 1)"])
                                                         for r in summ.to_dict("records")]) if len(summ) else ([], [])
     summ["rejection_reasons"] = summ["rejection_reasons"].apply(lambda w: "; ".join(w))
     summ.to_csv(out / "strategy_summary.csv", index=False)
@@ -261,6 +271,9 @@ def main(argv=None) -> int:
               "| Strategy | TF | Trades | Win% | PF | Gross PF | Expectancy | Net return | Max DD | Sharpe | Fees | Slippage | "
               "OOS PF | WF PF | Accepted |", "|" + "---|" * 15]
     for r in summ.sort_values(["accepted", "oos_profit_factor"], ascending=False).to_dict("records") if "oos_profit_factor" in summ else []:
+        if not has_params(r):
+            lines.append(f"| {r['family']} | {r['tf']} | – | – | – | – | – | – | – | – | – | – | – | – | no: {r['rejection_reasons']} |")
+            continue
         lines.append(f"| {r['family']} {r.get('params') or ''} | {r['tf']} | {r.get('full_trades', 0):.0f} | {fmt(r.get('full_win_rate'), True, 1)} | "
                      f"{fmt(r.get('full_profit_factor'))} | {fmt(r.get('full_gross_pf'))} | {fmt(r.get('full_expectancy_pct'), True, 3)} | "
                      f"{fmt(r.get('full_net_return'), True, 1)} | {fmt(r.get('full_max_drawdown'), True, 1)} | {fmt(r.get('full_sharpe'))} | "
