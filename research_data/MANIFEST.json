@@ -1,0 +1,48 @@
+{
+  "files": {
+    "coinbase_btcusd_5m.csv.gz": {
+      "exchange": "Coinbase Advanced (public candles)",
+      "product": "BTC-USD",
+      "timeframe": "5m",
+      "sha256": "31f06e32fd1ccdfb3f9082d3320e78236e69c97c756c34b2bd47ccae603f6ec9",
+      "downloaded_at": "2026-09-29T00:00:00+00:00",
+      "quality": {
+        "rows": 1023585,
+        "first": "2017-01-01 00:00:00+00:00",
+        "last": "2026-09-28 23:55:00+00:00",
+        "expected_bars": 1024704,
+        "missing_bars": 1119,
+        "missing_pct": 0.1092,
+        "largest_gap_bars": 188,
+        "duplicate_timestamps": 0,
+        "misaligned_timestamps": 0,
+        "bad_ohlc_rows": 0,
+        "nonpositive_price_rows": 0,
+        "zero_volume_rows": 0,
+        "extreme_return_rows": 0
+      }
+    },
+    "coinbase_btcusd_1h.csv.gz": {
+      "exchange": "Coinbase Advanced (public candles)",
+      "product": "BTC-USD",
+      "timeframe": "1h",
+      "sha256": "7a85e59bbcf0a1bc0d6b63f16a16ea369dd50c5557121157b4b3da5736e8a6cd",
+      "downloaded_at": "2026-09-29T00:00:00+00:00",
+      "quality": {
+        "rows": 85339,
+        "first": "2017-01-01 00:00:00+00:00",
+        "last": "2026-09-28 23:00:00+00:00",
+        "expected_bars": 85392,
+        "missing_bars": 53,
+        "missing_pct": 0.0621,
+        "largest_gap_bars": 15,
+        "duplicate_timestamps": 0,
+        "misaligned_timestamps": 0,
+        "bad_ohlc_rows": 0,
+        "nonpositive_price_rows": 0,
+        "zero_volume_rows": 0,
+        "extreme_return_rows": 0
+      }
+    }
+  }
+}
