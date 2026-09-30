@@ -403,7 +403,7 @@ def write_report(out: Path, frames, notes, p, start, res, data_path) -> dict:
     for ts, v in yr_ret.items():
         g = by_year[by_year.group == ts.year] if len(by_year) else by_year
         r = g.iloc[0].to_dict() if len(g) else {}
-        L.append(f"| {ts.year} | {fmt(v, True)} | {fmt(btc_r.get(ts), True)} | {r.get('trades', 0)} | "
+        L.append(f"| {ts.year} | {fmt(v, True)} | {fmt(btc_r.get(ts), True)} | {int(r.get('trades', 0))} | "
                  f"{fmt(r.get('profit_factor'))} | {fmt(r.get('net_pnl'))} |")
     L += ["", "## Equity curve", "", "![equity curve](equity_curve.svg)", "",
           "Data: `equity_curve.csv` (strategy equity, gross exposure, open positions, benchmarks); trades: `trades.csv`.", ""]
