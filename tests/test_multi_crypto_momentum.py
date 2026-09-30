@@ -524,3 +524,30 @@ def test_paper_network_failure_is_not_reported_as_unlisted_product(tmp_path):
     s.startup()
     assert s.available == {} and all("Coinbase unreachable" in v for v in s.unavailable.values())
     assert len(s.connection_errors) == len(UNIVERSE)
+
+
+def _klines(df):
+    ot = (df.index.astype("int64") // 10 ** 6).astype("int64") if df.index.dtype.unit == "ns" else \
+        (df.index.as_unit("ms").asi8)
+    return [[int(t), f"{r.open:.8f}", f"{r.high:.8f}", f"{r.low:.8f}", f"{r.close:.8f}", "1.0", int(t) + 86_399_999,
+             "0", 1, "0", "0", "0"] for t, r in zip(ot, df.itertuples())]
+
+
+def test_loader_reads_binance_kline_json(tmp_path):
+    from backtest.mcm_backtest import DataError, load_crypto_zip
+    fr = frames10(120)
+    p = tmp_path / "k.zip"
+    with zipfile.ZipFile(p, "w") as z:
+        for c in ("BTC", "ETH"):
+            z.writestr(f"crypto_data/{c}USDT_1d.json", json.dumps(_klines(fr[c])))
+    got, _ = load_crypto_zip(p)
+    assert list(got) == ["BTC", "ETH"] and got["BTC"].index[0] == fr["BTC"].index[0]
+    assert np.allclose(got["ETH"][["open", "high", "low", "close"]].to_numpy(),
+                       fr["ETH"][["open", "high", "low", "close"]].to_numpy())
+    hourly = _klines(fr["BTC"])
+    for row in hourly:
+        row[6] = row[0] + 3_599_999
+    with zipfile.ZipFile(tmp_path / "h.zip", "w") as z:
+        z.writestr("BTCUSDT_1h.json", json.dumps(hourly))
+    with pytest.raises(DataError, match="1-day"):
+        load_crypto_zip(tmp_path / "h.zip")

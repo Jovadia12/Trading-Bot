@@ -79,6 +79,32 @@ def _normalise(raw: pd.DataFrame, where: str) -> pd.DataFrame:
     return df
 
 
+BINANCE_KLINE_COLUMNS = ["open_time", "open", "high", "low", "close", "volume", "close_time", "quote_volume",
+                         "trades", "taker_base_volume", "taker_quote_volume", "ignore"]
+
+
+def _read_member(blob: bytes, name: str) -> pd.DataFrame:
+    """CSV, or JSON: a list of Binance kline arrays [open_time_ms, open, high, low, close, volume, close_time_ms, ...]
+    or a list of objects with named fields."""
+    if name.lower().endswith(".csv"):
+        return pd.read_csv(io.BytesIO(blob))
+    data = json.loads(blob)
+    if isinstance(data, dict):
+        data = data.get("data") or data.get("klines") or data.get("candles") or []
+    if not isinstance(data, list) or not data:
+        raise DataError(f"{name}: JSON is not a non-empty list of candles")
+    if isinstance(data[0], list):
+        if len(data[0]) < 6:
+            raise DataError(f"{name}: kline arrays need at least [open_time, open, high, low, close, volume]")
+        df = pd.DataFrame([row[:12] for row in data], columns=BINANCE_KLINE_COLUMNS[:min(12, len(data[0]))])
+        if "close_time" in df:   # daily klines must span one UTC day
+            span = (pd.to_numeric(df.close_time) - pd.to_numeric(df.open_time) + 1) / 86_400_000
+            if not np.allclose(span, 1.0):
+                raise DataError(f"{name}: klines are not 1-day candles (DAILY data required)")
+        return df
+    return pd.DataFrame(data)
+
+
 def load_crypto_zip(path: Path) -> tuple[dict[str, pd.DataFrame], list[str]]:
     """Return {coin: daily OHLC DataFrame (UTC day index)} for the 10-coin universe, plus notes.
     Accepts one CSV per coin (coin recognised from the file name, e.g. BTC.csv, BTC-USD.csv, btcusdt_1d.csv)
@@ -89,11 +115,12 @@ def load_crypto_zip(path: Path) -> tuple[dict[str, pd.DataFrame], list[str]]:
     frames: dict[str, pd.DataFrame] = {}
     notes: list[str] = []
     with zipfile.ZipFile(path) as z:
-        members = [m for m in z.namelist() if m.lower().endswith(".csv") and not Path(m).name.startswith("._")]
+        members = [m for m in z.namelist() if m.lower().endswith((".csv", ".json"))
+                   and not Path(m).name.startswith("._")]
         if not members:
-            raise DataError(f"{path.name}: no CSV files inside")
+            raise DataError(f"{path.name}: no CSV or JSON files inside")
         for m in sorted(members):
-            raw = pd.read_csv(io.BytesIO(z.read(m)))
+            raw = _read_member(z.read(m), m)
             scol = _col(raw, "symbol", "ticker", "coin", "asset", "base")
             if scol is not None:
                 for sym, g in raw.groupby(scol):
