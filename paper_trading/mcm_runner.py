@@ -43,6 +43,7 @@ MARKET_LABEL = ("Coinbase Advanced SPOT products (<COIN>-USD) used as a PRICE PR
 WARMUP_DAYS = 1000        # EMA200 needs a long history to converge (3 requests of <= 350 daily candles)
 DAY = timedelta(days=1)
 DECISION_GRACE = timedelta(minutes=30)   # after 00:00 UTC, wait up to this long for every coin's new candle
+HEARTBEAT = timedelta(minutes=5)         # visible status line at most this often (one per poll at the default 300 s)
 
 
 def utc_day(t: datetime) -> pd.Timestamp:
@@ -82,6 +83,9 @@ class MCMPaperSession:
         self.md_messages = 0            # successful market-data REST responses
         self.candles_received = 0
         self.connection_errors: list[str] = []
+        self.last_refresh_ok: Optional[datetime] = None      # last poll where EVERY available coin refreshed
+        self.last_heartbeat: Optional[datetime] = None
+        self.status = "starting"
         self.equity_marks: list[tuple[str, float]] = []
         self.startup_signals: list[dict] = []
         self.started_at: Optional[datetime] = None
@@ -107,7 +111,9 @@ class MCMPaperSession:
                 self.candles_received += len(c)
                 parts.append(candles_frame(c))
             except ExchangeAPIError as exc:
-                self.connection_errors.append(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} {pid}: {exc}")
+                line = f"{pd.Timestamp(self.now()):%Y-%m-%d %H:%M:%S} UTC {coin} ({pid}): {exc}"
+                self.connection_errors.append(line)
+                print(f"MARKET-DATA ERROR {line}", flush=True)    # never silent
                 raise
             finally:
                 self.sleep(self.pause)
@@ -149,15 +155,22 @@ class MCMPaperSession:
             for coin in list(self.available):
                 self.unavailable[coin] = f"{self.available.pop(coin)}: disabled because BTC warm-up failed"
 
-    def refresh(self) -> None:
+    def refresh(self) -> list[str]:
+        """Fetch the latest daily candles (end = now: never a future end time). Returns the coins that failed;
+        each failure has already been printed and recorded by _candles()."""
         now = self.now()
+        failed = []
         for coin in list(self.available):
             try:
-                new = self._candles(coin, now - DAY * 5, now + timedelta(minutes=5))
+                new = self._candles(coin, now - DAY * 5, now)
             except ExchangeAPIError:
+                failed.append(coin)
                 continue
             df = pd.concat([self.frames.get(coin, candles_frame([])), new])
             self.frames[coin] = df[~df.index.duplicated(keep="last")].sort_index()
+        if not failed:
+            self.last_refresh_ok = now
+        return failed
 
     # -- strategy steps -----------------------------------------------------------------------------------
     def _completed_frames(self, now) -> dict:
@@ -194,9 +207,10 @@ class MCMPaperSession:
     def step(self) -> Optional[str]:
         """One poll. Returns a description if a daily decision was executed."""
         now = self.now()
-        self.refresh()
+        failed = self.refresh()
         today = utc_day(now)
         done = None
+        self.status = f"next decision at {today + DAY:%Y-%m-%d} 00:00 UTC (after the {today:%Y-%m-%d} candle closes)"
         if today > self.last_decision_day:
             yesterday = today - DAY
             comp = self._completed_frames(now)
@@ -211,9 +225,35 @@ class MCMPaperSession:
                 self.last_decision_day = today
                 done = f"{today:%Y-%m-%d}: evaluated {len(have_close)} completed candles, {len(fills)} paper fills"
                 log.info(done)
+                self.status = f"decided {today:%Y-%m-%d}; next decision at {today + DAY:%Y-%m-%d} 00:00 UTC"
+            else:
+                n = len(self.available)
+                self.status = (f"WAITING for the {today:%Y-%m-%d} daily candle: completed {yesterday:%Y-%m-%d} candle for "
+                               f"{len(have_close)}/{n} coins, {today:%Y-%m-%d} candle for {len(have_open)}/{n} coins"
+                               + (f"; refresh failed for {', '.join(failed)}" if failed else ""))
+                if grace_over:
+                    self.status += f" -- WARNING: still not ready {DECISION_GRACE.seconds // 60} min after 00:00 UTC"
+                print(f"{pd.Timestamp(now):%Y-%m-%d %H:%M:%S} UTC {self.status}", flush=True)
         self.mark(now)
+        self.heartbeat(now)
         self.persist()
         return done
+
+    def heartbeat(self, now, force: bool = False) -> Optional[str]:
+        if not force and self.last_heartbeat is not None and pd.Timestamp(now) - pd.Timestamp(self.last_heartbeat) < HEARTBEAT:
+            return None
+        self.last_heartbeat = now
+        today = utc_day(now)
+        held = sum(len(df) for c, df in self.frames.items() if c in self.available)
+        with_today = sum(1 for c, df in self.frames.items() if c in self.available and today in df.index)
+        pos = ", ".join(f"{c} {p.side}" for c, p in self.engine.pf.positions.items()) or "none"
+        last_ok = f"{pd.Timestamp(self.last_refresh_ok):%Y-%m-%d %H:%M:%S} UTC" if self.last_refresh_ok else "never"
+        line = (f"HEARTBEAT {pd.Timestamp(now):%Y-%m-%d %H:%M:%S} UTC | last successful market-data refresh: {last_ok} | "
+                f"candles held: {held} ({with_today}/{len(self.available)} coins have today's candle) | "
+                f"equity ${self.engine.equity():,.2f} | open positions: {pos} | errors so far: {len(self.connection_errors)} | "
+                f"{self.status}")
+        print(line, flush=True)
+        return line
 
     # -- reports ----------------------------------------------------------------------------------------
     def startup_report(self) -> list[str]:
@@ -279,7 +319,10 @@ class MCMPaperSession:
         if self.out_dir is None:
             return
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        snap = {"now": str(self.now()), "snapshot": self.engine.snapshot(), "events": self.engine.events,
+        snap = {"now": str(self.now()), "status": self.status, "last_successful_refresh": str(self.last_refresh_ok),
+                "connection_errors_total": len(self.connection_errors),
+                "connection_errors": self.connection_errors[-500:],
+                "snapshot": self.engine.snapshot(), "events": self.engine.events,
                 "trades": self.engine.pf.trades, "equity_marks": self.equity_marks[-5000:]}
         (self.out_dir / "state.json").write_text(json.dumps(snap, indent=1, default=str))
         if final is not None:

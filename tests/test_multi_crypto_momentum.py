@@ -551,3 +551,123 @@ def test_loader_reads_binance_kline_json(tmp_path):
         z.writestr("BTCUSDT_1h.json", json.dumps(hourly))
     with pytest.raises(DataError, match="1-day"):
         load_crypto_zip(tmp_path / "h.zip")
+
+
+# ------------------------------------------------------------ market-data reliability (Oct 1 regression)
+class FutureEndRejecting(RoutedSession):
+    """Coinbase-like fake that rejects a candles request whose `end` is in the future (HTTP 400)
+    and records every candles request's parameters."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.candle_params = []
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        if url.endswith("/candles"):
+            self.candle_params.append(dict(params))
+            if int(params["end"]) > int(self.clock().timestamp()):
+                self.calls.append(url)
+
+                class R:
+                    status_code = 400
+                    text = "{}"
+                return R()
+        return super().get(url, params, headers, timeout)
+
+
+def _oct1_session(tmp_path, Http=FutureEndRejecting, start=datetime(2026, 9, 30, 23, 5, tzinfo=timezone.utc)):
+    from exchange.client import CoinbaseAdvancedClient
+    from exchange.transport import ReadOnlyTransport
+    from paper_trading.mcm_runner import MCMPaperSession
+    n = 1300
+    fr = frames10(n, seed=13)
+    for df in fr.values():
+        df.index = pd.date_range(end="2026-10-02", periods=n, freq="1D", tz="UTC")
+    clock = Clock(start)
+    http = Http(fr, missing=(), clock=clock)
+    s = MCMPaperSession(CoinbaseAdvancedClient(transport=ReadOnlyTransport(session=http)), P, 200.0, now=clock,
+                        sleep=lambda _s: None, out_dir=tmp_path / "rec")
+    return s, clock, http, fr
+
+
+def test_refresh_never_requests_a_future_end_time(tmp_path):
+    s, clock, http, _fr = _oct1_session(tmp_path)
+    s.startup()
+    for _ in range(3):
+        clock.t += timedelta(minutes=5)
+        s.step()
+    assert http.candle_params and all(int(p["end"]) <= int(clock.t.timestamp()) for p in http.candle_params)
+
+
+def test_oct1_regression_future_end_rejecting_coinbase_still_executes_next_open(tmp_path, capsys):
+    """Replays the 2026-10-01 failure: startup 23:05 UTC, polls every 5 min. Before the fix every refresh used
+    end=now+5min, was rejected, was swallowed, and the 00:00 decision never ran."""
+    s, clock, http, fr = _oct1_session(tmp_path)
+    s.startup()
+    decided = None
+    while clock.t < datetime(2026, 10, 1, 1, 0, tzinfo=timezone.utc):
+        clock.t += timedelta(minutes=5)
+        decided = s.step() or decided
+    assert decided and decided.startswith("2026-10-01: evaluated 10 completed candles")
+    assert s.connection_errors == [] and s.engine.pf.paper_orders > 0
+    oct1 = pd.Timestamp("2026-10-01", tz="UTC")
+    for c, p in s.engine.pf.positions.items():
+        assert p.entry_time == oct1 and p.entry_ref == fr[c].loc[oct1, "open"]   # filled at the Oct 1 open
+    assert "MARKET-DATA ERROR" not in capsys.readouterr().out
+
+
+def test_refresh_errors_are_printed_and_written_to_state_json(tmp_path, capsys):
+    s, clock, http, _fr = _oct1_session(tmp_path)
+    s.startup()
+    http.missing.add("ETH")
+    clock.t += timedelta(minutes=5)
+    s.step()
+    out = capsys.readouterr().out
+    assert "MARKET-DATA ERROR 2026-09-30 23:10:00 UTC ETH (ETH-USD):" in out and "HTTP 404" in out
+    st = json.loads((tmp_path / "rec" / "state.json").read_text())
+    assert st["connection_errors_total"] == 1 and "ETH-USD" in st["connection_errors"][0] and "HTTP 404" in st["connection_errors"][0]
+    assert st["last_successful_refresh"] == "None"      # not every coin refreshed in that poll
+    assert "status" in st
+
+
+def test_waiting_status_and_heartbeat_are_visible(tmp_path, capsys):
+    class NoNewCandle(FutureEndRejecting):          # Coinbase has not published the Oct 1 candle yet
+        def get(self, url, params=None, headers=None, timeout=None):
+            r = super().get(url, params, headers, timeout)
+            if url.endswith("/candles") and r.status_code == 200:
+                body = r.json()
+                body["candles"] = [c for c in body["candles"]
+                                   if pd.Timestamp(int(c["start"]), unit="s", tz="UTC") < pd.Timestamp("2026-10-01", tz="UTC")]
+            return r
+    s, clock, http, _fr = _oct1_session(tmp_path, Http=NoNewCandle)
+    s.startup()
+    capsys.readouterr()
+    for _ in range(50):                              # 23:06 .. 23:55 then 00:00 .. 00:56, one poll per 2 min
+        clock.t += timedelta(minutes=2)
+        s.step()
+    out = capsys.readouterr().out
+    beats = [l for l in out.splitlines() if l.startswith("HEARTBEAT")]
+    assert 15 <= len(beats) <= 22                     # every 5 min, not every poll (100 min / 5)
+    assert all("last successful market-data refresh: 20" in b and "candles held:" in b and "equity $200.00" in b
+               and "open positions: none" in b for b in beats)
+    waits = [l for l in out.splitlines() if "WAITING for the 2026-10-01 daily candle" in l]
+    assert waits and "2026-10-01 candle for 0/10 coins" in waits[0]
+    assert any("WARNING: still not ready 30 min after 00:00 UTC" in l for l in waits)
+    assert s.engine.pf.paper_orders == 0             # never trades without the real next-candle open
+    assert "WAITING" in json.loads((tmp_path / "rec" / "state.json").read_text())["status"]
+
+
+def test_restart_does_not_backfill_the_missed_oct1_trade(tmp_path):
+    s, clock, http, _fr = _oct1_session(tmp_path, start=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc))
+    s.startup()
+    for _ in range(12):                              # rest of Oct 1: no decision, no orders
+        clock.t += timedelta(hours=1)
+        assert s.step() is None or clock.t >= datetime(2026, 10, 2, tzinfo=timezone.utc)
+    assert all(e["time"] >= pd.Timestamp("2026-10-01", tz="UTC") for e in s.engine.events)
+    assert not any(e["kind"].startswith("fill") and e["time"] == pd.Timestamp("2026-10-01", tz="UTC")
+                   for e in s.engine.events)
+    while clock.t < datetime(2026, 10, 2, 0, 10, tzinfo=timezone.utc):
+        clock.t += timedelta(minutes=5)
+        s.step()
+    fills = [e for e in s.engine.events if e["kind"].startswith("fill")]
+    assert fills and all(e["time"] == pd.Timestamp("2026-10-02", tz="UTC") for e in fills)   # first fills: Oct 2 open
