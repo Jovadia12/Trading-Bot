@@ -1,6 +1,7 @@
-"""Download Coinbase BTC-USD historical candles for research (read-only, public endpoints).
+"""Download Coinbase historical candles for research (read-only, public endpoints). Default product: BTC-USD.
 
     PAPER_MODE=true python3 -m backtest.fetch_coinbase --start 2017-01-01 --tf 5m 1h
+    PAPER_MODE=true python3 -m backtest.fetch_coinbase --product ETH-USD --start 2025-09-01 --tf 5m
 
 Uses the existing read-only exchange client (``CoinbaseAdvancedClient.get_candles``) -> allowlisted
 GET ``/api/v3/brokerage/market/products/BTC-USD/candles`` (or the authenticated equivalent if keys
@@ -73,8 +74,13 @@ def is_retryable(exc: Exception) -> bool:
     return status is None or status == 429 or status >= 500
 
 
-def partial_path(tf: str) -> Path:
-    return PARTIAL_DIR / f"{data_path(tf).name.replace('.csv.gz', '')}.partial.csv"
+def product_key(product: str) -> str:
+    """BTC-USD -> btcusd (the file-name convention of backtest.data.data_path)."""
+    return product.replace("-", "").lower()
+
+
+def partial_path(tf: str, product: str = "BTC-USD") -> Path:
+    return PARTIAL_DIR / f"{data_path(tf, product_key(product)).name.replace('.csv.gz', '')}.partial.csv"
 
 
 def read_partial(path: Path) -> pd.DataFrame:
@@ -94,12 +100,13 @@ def read_partial(path: Path) -> pd.DataFrame:
     return df.set_index("time")
 
 
-def load_existing(tf: str) -> Optional[pd.DataFrame]:
+def load_existing(tf: str, product: str = "BTC-USD") -> Optional[pd.DataFrame]:
     """Final file + checkpoint, merged and de-duplicated (checkpoint wins)."""
     parts = []
-    if data_path(tf).is_file():
-        parts.append(load_candles(data_path(tf)))
-    p = read_partial(partial_path(tf))
+    final = data_path(tf, product_key(product))
+    if final.is_file():
+        parts.append(load_candles(final))
+    p = read_partial(partial_path(tf, product))
     if len(p):
         parts.append(p)
     if not parts:
@@ -139,7 +146,7 @@ class Checkpoint:
 
 def fetch(client, tf: str, start: datetime, end: datetime, checkpoint: Optional[Checkpoint] = None,
           pause_s: float = 0.15, retry: RetryPolicy = RetryPolicy(), sleep: Callable[[float], None] = time.sleep,
-          log=print, seed: Optional[int] = None) -> pd.DataFrame:
+          log=print, seed: Optional[int] = None, product: str = "BTC-USD") -> pd.DataFrame:
     """Download [start, end). Each completed window is checkpointed before the next request.
 
     Raises FetchInterrupted (after checkpointing everything completed) on a permanent error or when
@@ -154,7 +161,7 @@ def fetch(client, tf: str, start: datetime, end: datetime, checkpoint: Optional[
         w_end = min(t + window, end)
         for attempt in range(1, retry.attempts + 1):
             try:
-                candles = client.get_candles("BTC-USD", t, w_end, tf)
+                candles = client.get_candles(product, t, w_end, tf)
                 break
             except ExchangeAPIError as exc:
                 if not is_retryable(exc):
@@ -186,10 +193,10 @@ def fetch(client, tf: str, start: datetime, end: datetime, checkpoint: Optional[
 
 
 def download_timeframe(client, tf: str, start: datetime, end: datetime, retry: RetryPolicy = RetryPolicy(),
-                       pause_s: float = 0.15, sleep=time.sleep, log=print) -> pd.DataFrame:
+                       pause_s: float = 0.15, sleep=time.sleep, log=print, product: str = "BTC-USD") -> pd.DataFrame:
     """Resume-aware download of one timeframe; returns the complete merged frame (final file written)."""
     step = timedelta(seconds=TF_SECONDS[tf])
-    existing = load_existing(tf)
+    existing = load_existing(tf, product)
     resume = start
     if existing is not None and len(existing):
         resume = max(start, existing.index.max().to_pydatetime() + step)
@@ -197,17 +204,17 @@ def download_timeframe(client, tf: str, start: datetime, end: datetime, retry: R
             f"-> resuming from {resume:%Y-%m-%d %H:%M} UTC")
     if resume < end:
         log(f"{tf}: downloading {resume:%Y-%m-%d %H:%M} -> {end:%Y-%m-%d %H:%M} UTC")
-        cp = Checkpoint(partial_path(tf))
+        cp = Checkpoint(partial_path(tf, product))
         try:
-            fetch(client, tf, resume, end, cp, pause_s=pause_s, retry=retry, sleep=sleep, log=log)
+            fetch(client, tf, resume, end, cp, pause_s=pause_s, retry=retry, sleep=sleep, log=log, product=product)
         finally:
             cp.close()
     else:
         log(f"{tf}: already complete through {end:%Y-%m-%d %H:%M} UTC")
-    df = load_existing(tf)
+    df = load_existing(tf, product)
     df = df[(df.index >= start) & (df.index < end)]
-    save_candles(df, data_path(tf))            # atomic write
-    partial_path(tf).unlink(missing_ok=True)   # checkpoint merged into the final file
+    save_candles(df, data_path(tf, product_key(product)))   # atomic write
+    partial_path(tf, product).unlink(missing_ok=True)       # checkpoint merged into the final file
     return df
 
 
@@ -216,7 +223,8 @@ def make_client(settings) -> CoinbaseAdvancedClient:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Download Coinbase BTC-USD candles for research (read-only, resumable)")
+    ap = argparse.ArgumentParser(description="Download Coinbase candles for research (read-only, resumable)")
+    ap.add_argument("--product", default="BTC-USD", help="Coinbase product id, e.g. ETH-USD (default BTC-USD)")
     ap.add_argument("--start", default="2017-01-01", help="UTC start date (default 2017-01-01)")
     ap.add_argument("--end", default=None, help="UTC end date (default: start of the current hour)")
     ap.add_argument("--tf", nargs="+", default=["5m", "1h"], choices=["1m", "5m", "15m", "30m", "1h", "1d"])
@@ -236,21 +244,21 @@ def main(argv=None) -> int:
     manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {"files": {}}
     for tf in args.tf:
         try:
-            df = download_timeframe(client, tf, start, end, retry)
+            df = download_timeframe(client, tf, start, end, retry, product=args.product)
         except FetchInterrupted as exc:
-            saved = load_existing(tf)
+            saved = load_existing(tf, args.product)
             through = f"{saved.index.max():%Y-%m-%d %H:%M} UTC" if saved is not None and len(saved) else "nothing yet"
             print(f"\nDOWNLOAD PAUSED: {exc}\nSaved {0 if saved is None else len(saved):,} {tf} candles through {through}. "
                   f"Re-run the same command to continue from there.", file=sys.stderr)
             return 1
         except KeyboardInterrupt:
-            saved = load_existing(tf)
+            saved = load_existing(tf, args.product)
             print(f"\nInterrupted. {0 if saved is None else len(saved):,} {tf} candles are saved; re-run to resume.",
                   file=sys.stderr)
             return 130
-        path = data_path(tf)
+        path = data_path(tf, product_key(args.product))
         q = quality_report(df, tf)
-        manifest["files"][path.name] = {"exchange": "Coinbase Advanced (public candles)", "product": "BTC-USD",
+        manifest["files"][path.name] = {"exchange": "Coinbase Advanced (public candles)", "product": args.product,
                                         "timeframe": tf, "sha256": __import__("hashlib").sha256(path.read_bytes()).hexdigest(),
                                         "downloaded_at": now.isoformat(), "quality": q.to_dict()}
         print(f"{tf}: {q.rows:,} candles {q.first} -> {q.last}; missing {q.missing_bars:,} ({q.missing_pct}%), "
