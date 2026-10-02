@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import signal as _signal
 import sys
 import time
@@ -239,6 +240,28 @@ class MCMPaperSession:
         self.persist()
         return done
 
+    def signal_states(self) -> dict:
+        """Read-only view of each coin's indicators/signals on its latest COMPLETED daily candle, computed with the
+        same build_states() the engine uses. Display only: it never creates orders or changes engine state."""
+        if self.engine is None or not self.frames:
+            return {}
+        comp = {c: df for c, df in self._completed_frames(self.now()).items() if len(df)}
+        if not comp:
+            return {}
+        states = build_states(comp, self.p)
+        out = {}
+        for c, st in states.items():
+            r = st.iloc[-1]
+            pos = self.engine.pf.positions.get(c)
+            num = lambda v: None if v is None or (isinstance(v, float) and np.isnan(v)) else float(v)
+            out[c] = {"candle": str(st.index[-1].date()), "close": num(r.close), "ret40": num(r.ret), "ema200": num(r.ema),
+                      "raw_long": bool(r.raw_long), "raw_short": bool(r.raw_short),
+                      "regime_ok_long": bool(r.regime_ok_long), "regime_ok_short": bool(r.regime_ok_short),
+                      "long_sig": bool(r.long_sig), "short_sig": bool(r.short_sig),
+                      "exit_long": bool(r.exit_long), "exit_short": bool(r.exit_short),
+                      "position": pos.side if pos else None}
+        return out
+
     def heartbeat(self, now, force: bool = False) -> Optional[str]:
         if not force and self.last_heartbeat is not None and pd.Timestamp(now) - pd.Timestamp(self.last_heartbeat) < HEARTBEAT:
             return None
@@ -250,8 +273,10 @@ class MCMPaperSession:
         last_ok = f"{pd.Timestamp(self.last_refresh_ok):%Y-%m-%d %H:%M:%S} UTC" if self.last_refresh_ok else "never"
         line = (f"HEARTBEAT {pd.Timestamp(now):%Y-%m-%d %H:%M:%S} UTC | last successful market-data refresh: {last_ok} | "
                 f"candles held: {held} ({with_today}/{len(self.available)} coins have today's candle) | "
-                f"equity ${self.engine.equity():,.2f} | open positions: {pos} | errors so far: {len(self.connection_errors)} | "
-                f"{self.status}")
+                f"equity ${self.engine.equity():,.2f} | open positions: {pos} | "
+                f"paper orders (filled): {self.engine.pf.paper_orders} | live orders: 0 | "
+                f"order_endpoint_called: {'YES' if self.order_endpoint_called() else 'NO'} | "
+                f"errors so far: {len(self.connection_errors)} | {self.status}")
         print(line, flush=True)
         return line
 
@@ -275,7 +300,8 @@ class MCMPaperSession:
             "-" * 78,
             "PAPER MODE: ENABLED",
             f"order_endpoint_called: {'YES' if self.order_endpoint_called() else 'NO'}",
-            f"paper orders: {self.engine.pf.paper_orders} | live orders: 0 (no live order path exists in this project)",
+            f"paper orders: {self.engine.pf.paper_orders} | live orders: 0 (no live order path exists in this project)"
+            " [values AT STARTUP; live counters are in every HEARTBEAT line and state.json]",
             f"starting equity: ${self.start_equity:,.2f}",
             "=" * 78,
         ]
@@ -319,12 +345,31 @@ class MCMPaperSession:
         if self.out_dir is None:
             return
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        snap = {"now": str(self.now()), "status": self.status, "last_successful_refresh": str(self.last_refresh_ok),
+        pf = self.engine.pf
+        snap = {"schema": 2, "now": str(self.now()), "status": self.status,
+                "last_successful_refresh": str(self.last_refresh_ok),
                 "connection_errors_total": len(self.connection_errors),
                 "connection_errors": self.connection_errors[-500:],
+                # session facts and live safety counters (the dashboard reads these; nothing here is inferred)
+                "paper_mode": True, "started_at": str(self.started_at), "start_equity": self.start_equity,
+                "params": params_dict(self.p), "poll_seconds": getattr(self, "poll_s", None),
+                "available_symbols": self.available, "unavailable_symbols": self.unavailable,
+                "paper_orders": pf.paper_orders, "live_orders": 0, "order_endpoint_called": self.order_endpoint_called(),
+                "fees_paid": pf.fees_paid, "slippage_paid": pf.slippage_paid,
+                "last_decision_day": str(self.last_decision_day.date()) if self.last_decision_day is not None else None,
+                "last_prices": self.engine.last_price,
+                "positions_detail": {c: {"side": p.side, "qty": p.qty, "entry_ref": p.entry_ref, "entry_fill": p.entry_fill,
+                                         "entry_time": str(p.entry_time), "notional": p.notional, "entry_fee": p.entry_fee,
+                                         "entry_slippage": p.entry_slippage, "signal_ret40": p.signal_ret}
+                                     for c, p in pf.positions.items()},
+                "signal_states": self.signal_states(),
+                "startup_signals_not_traded": self.startup_signals,
                 "snapshot": self.engine.snapshot(), "events": self.engine.events,
-                "trades": self.engine.pf.trades, "equity_marks": self.equity_marks[-5000:]}
-        (self.out_dir / "state.json").write_text(json.dumps(snap, indent=1, default=str))
+                "trades": pf.trades, "equity_marks": self.equity_marks[-5000:]}
+        # atomic replace: a reader (e.g. the dashboard) never sees a half-written file
+        tmp = self.out_dir / "state.json.tmp"
+        tmp.write_text(json.dumps(snap, indent=1, default=str))
+        os.replace(tmp, self.out_dir / "state.json")
         if final is not None:
             (self.out_dir / "final_report.json").write_text(json.dumps(final, indent=2, default=str))
 
@@ -355,6 +400,7 @@ def format_final(r: dict) -> str:
 def run(session: MCMPaperSession, duration_s: float, poll_s: float, clock: Optional[SessionClock] = None,
         max_polls: Optional[int] = None) -> dict:
     clock = clock or SessionClock(duration_s)
+    session.poll_s = poll_s
     stop = {"reason": "duration reached"}
 
     def on_sigint(*_):

@@ -671,3 +671,37 @@ def test_restart_does_not_backfill_the_missed_oct1_trade(tmp_path):
         s.step()
     fills = [e for e in s.engine.events if e["kind"].startswith("fill")]
     assert fills and all(e["time"] == pd.Timestamp("2026-10-02", tz="UTC") for e in fills)   # first fills: Oct 2 open
+
+
+# ---------------------------------------------- paper-order counter vs open positions (display discrepancy)
+def test_every_position_comes_from_a_counted_paper_fill():
+    e = MCMEngine(200)
+    e.on_close(T[0], {c: state(ret=0.1 + i / 100) for i, c in enumerate(UNIVERSE[:6])})
+    e.on_open(T[1], {c: 100.0 for c in UNIVERSE[:6]})
+    fills = [x for x in e.events if x["kind"] == "fill_entry"]
+    assert len(e.pf.positions) == 6 and e.pf.paper_orders == 6 == len(fills)
+    e.on_close(T[2], {"ETH": state(close=100, ret=-0.01, ema=90)})
+    e.on_open(T[3], {"ETH": 100.0})
+    assert e.pf.paper_orders == 7 and len(e.pf.positions) == 5 and len(e.pf.trades) == 1
+
+
+def test_heartbeat_and_state_json_show_live_paper_order_count(tmp_path, capsys):
+    """Regression for the observed '6 positions but paper orders: 0': the 0 came from the STARTUP banner, which
+    was never refreshed; the engine counter was correct. Live counters must now be visible."""
+    s, clock, http, _fr = _oct1_session(tmp_path, Http=RoutedSession)
+    banner = "\n".join(s.startup())
+    assert "paper orders: 0 | live orders: 0" in banner and "values AT STARTUP" in banner
+    capsys.readouterr()
+    while clock.t < datetime(2026, 10, 1, 0, 10, tzinfo=timezone.utc):
+        clock.t += timedelta(minutes=5)
+        s.step()
+    n = s.engine.pf.paper_orders
+    assert n > 0 and n == len([e for e in s.engine.events if e["kind"].startswith("fill")]) == len(s.engine.pf.positions)
+    beat = [l for l in capsys.readouterr().out.splitlines() if l.startswith("HEARTBEAT")][-1]
+    assert f"paper orders (filled): {n} | live orders: 0 | order_endpoint_called: NO" in beat
+    st = json.loads((tmp_path / "rec" / "state.json").read_text())
+    assert st["paper_orders"] == n and st["live_orders"] == 0 and st["order_endpoint_called"] is False
+    assert set(st["positions_detail"]) == set(s.engine.pf.positions) and st["start_equity"] == 200.0
+    assert set(st["signal_states"]) == set(s.available) and not (tmp_path / "rec" / "state.json.tmp").exists()
+    btc = st["signal_states"]["BTC"]
+    assert btc["candle"] == "2026-09-30" and {"ret40", "ema200", "long_sig", "regime_ok_long", "position"} <= set(btc)

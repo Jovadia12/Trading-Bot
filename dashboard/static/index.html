@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paper Trading Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-name">multi_crypto_momentum</span>
+      <span class="brand-sub">paper-trading dashboard</span>
+    </div>
+    <div class="safety" id="safety" aria-label="Safety state">
+      <span class="pill pill-good"><span class="dot"></span>PAPER MODE: ON</span>
+      <span class="pill pill-off"><span class="icon" aria-hidden="true">&#x26D4;</span>LIVE TRADING: OFF</span>
+    </div>
+    <div class="conn" id="conn">connecting…</div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="overview">Overview</button>
+    <button class="tab" data-tab="positions">Open positions</button>
+    <button class="tab" data-tab="trades">Trade history</button>
+    <button class="tab" data-tab="strategy">Strategy</button>
+    <button class="tab" data-tab="performance">Performance</button>
+    <button class="tab" data-tab="status">Bot status</button>
+  </nav>
+
+  <main>
+    <div id="banner" class="banner hidden"></div>
+
+    <section id="tab-overview" class="tabpanel">
+      <div class="grid kpis" id="kpis"></div>
+      <div class="grid two">
+        <div class="card"><h3>Equity <span class="muted" id="eq-note"></span></h3><div class="chart" id="ov-equity"></div></div>
+        <div class="card"><h3>P&amp;L breakdown</h3><div id="pnl-breakdown"></div></div>
+      </div>
+    </section>
+
+    <section id="tab-positions" class="tabpanel hidden">
+      <div class="card">
+        <h3>Open paper positions <span class="muted">filled by the paper execution engine (not signals)</span></h3>
+        <div class="table-wrap" id="positions"></div>
+      </div>
+    </section>
+
+    <section id="tab-trades" class="tabpanel hidden">
+      <div class="card">
+        <div class="card-head">
+          <h3>Paper trades</h3>
+          <div class="seg" id="trade-filter">
+            <button data-f="all" class="active">All</button><button data-f="OPEN">Open</button><button data-f="CLOSED">Closed</button>
+          </div>
+        </div>
+        <p class="note">Gross P&amp;L = after slippage, before fees. Net P&amp;L = after entry + exit fees. Open trades show unrealized P&amp;L before exit costs.</p>
+        <div class="table-wrap" id="trades"></div>
+      </div>
+    </section>
+
+    <section id="tab-strategy" class="tabpanel hidden">
+      <div class="grid two">
+        <div class="card"><h3>Current strategy rules <span class="muted">(fixed, not optimised)</span></h3><dl class="rules" id="rules"></dl></div>
+        <div class="card"><h3>Signal &rarr; order &rarr; position</h3>
+          <ol class="flow">
+            <li><b>Strategy signal</b>: indicator conditions on a completed daily candle. Not an order.</li>
+            <li><b>Simulated paper order</b>: created only at the next 00:00 UTC open for signals that pass the caps; filled immediately at that open (+ slippage, + fee).</li>
+            <li><b>Filled paper position</b>: what the engine holds; marked to market every poll (<i>unrealized</i> P&amp;L).</li>
+            <li><b>Closed trade</b>: exit fill recorded; P&amp;L becomes <i>realized</i>.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Signal state per coin</h3>
+        <p class="note" id="sig-source"></p>
+        <div class="table-wrap" id="signals"></div>
+      </div>
+    </section>
+
+    <section id="tab-performance" class="tabpanel hidden">
+      <div class="grid kpis" id="perf-kpis"></div>
+      <div class="grid two">
+        <div class="card"><h3>Equity curve</h3><div class="chart" id="pf-equity"></div></div>
+        <div class="card"><h3>Cumulative P&amp;L</h3><div class="chart" id="pf-cum"></div></div>
+        <div class="card"><h3>Daily P&amp;L</h3><div class="chart" id="pf-daily"></div></div>
+        <div class="card"><h3>Drawdown</h3><div class="chart" id="pf-dd"></div></div>
+      </div>
+      <div class="grid two">
+        <div class="card"><h3>Monthly performance</h3><div class="table-wrap" id="monthly"></div></div>
+        <div class="card"><h3>Long vs short (closed trades)</h3><div class="table-wrap" id="byside"></div></div>
+      </div>
+    </section>
+
+    <section id="tab-status" class="tabpanel hidden">
+      <div class="safety-hero">
+        <div class="hero-item good"><span class="hero-label">PAPER MODE</span><span class="hero-value">ON</span></div>
+        <div class="hero-item off"><span class="hero-label">LIVE TRADING</span><span class="hero-value">OFF</span></div>
+        <div class="hero-item" id="hero-orders"></div>
+        <div class="hero-item" id="hero-endpoint"></div>
+      </div>
+      <div class="grid two">
+        <div class="card"><h3>Bot &amp; data feed</h3><dl class="kv" id="status-kv"></dl></div>
+        <div class="card"><h3>Order pipeline</h3><dl class="kv" id="pipeline"></dl></div>
+      </div>
+      <div class="card"><h3>Recent data errors</h3><div id="errors"></div></div>
+    </section>
+  </main>
+
+  <div id="tooltip" class="tooltip hidden" role="status"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
