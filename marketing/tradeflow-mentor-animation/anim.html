@@ -1,0 +1,271 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>TradeFlow Mentor</title>
+<style>
+@font-face{font-family:Inter;src:url(fonts/Inter-400.ttf);font-weight:400}
+@font-face{font-family:Inter;src:url(fonts/Inter-500.ttf);font-weight:500}
+@font-face{font-family:Inter;src:url(fonts/Inter-600.ttf);font-weight:600}
+@font-face{font-family:Inter;src:url(fonts/Inter-700.ttf);font-weight:700}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#05060d}
+#stage{position:absolute;inset:0;overflow:hidden;background:#05060d}
+#bg{position:absolute;left:-200px;top:-200px;width:2320px;height:1480px;transform-origin:1160px 740px;
+  background:radial-gradient(1200px 900px at 50% 45%,#121530 0%,#0a0c1c 45%,#05060d 100%)}
+.glow{position:absolute;border-radius:50%;filter:blur(60px)}
+#g1{width:1100px;height:800px;background:radial-gradient(closest-side,rgba(124,58,237,.30),rgba(124,58,237,0))}
+#g2{width:1000px;height:760px;background:radial-gradient(closest-side,rgba(59,110,246,.22),rgba(59,110,246,0))}
+#g3{width:700px;height:520px;background:radial-gradient(closest-side,rgba(16,185,129,.10),rgba(16,185,129,0))}
+#particles{position:absolute;inset:0}
+.pt{position:absolute;border-radius:50%;background:#c7d2fe}
+#cam{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
+#win{position:absolute;left:96px;top:109px;width:1920px;height:958px;transform:scale(.9);transform-origin:0 0;
+  border-radius:16px;overflow:hidden;background:#fdfdfd url(src.png) 0 -122px no-repeat;
+  box-shadow:0 0 0 1px rgba(255,255,255,.07)}
+#shadow{position:absolute;left:96px;top:109px;width:1728px;height:862.2px;border-radius:14.4px;
+  box-shadow:0 50px 140px rgba(0,0,0,.65),0 18px 50px rgba(0,0,0,.45),0 0 120px rgba(124,58,237,.14)}
+.abs{position:absolute}
+#sheen{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(115deg,rgba(255,255,255,0) 40%,rgba(255,255,255,.10) 50%,rgba(255,255,255,0) 60%);background-size:300% 100%}
+.ui{font-family:Inter;font-size:13.65px;-webkit-font-smoothing:antialiased}
+/* input */
+#inCover{left:532px;top:845px;width:1022px;height:56px;background:#fdfdfd;border-radius:5px}
+#inRing{left:529px;top:842px;width:1028px;height:60px;border-radius:7px;border:1px solid #c4b5fd;
+  box-shadow:0 0 0 3px rgba(139,92,246,.14)}
+#inText{left:542px;top:851px;color:#111827;white-space:pre;line-height:20px}
+#placeholder{left:542px;top:851px;color:#6b7280;white-space:pre;line-height:20px}
+#caret{position:absolute;width:1.3px;height:17px;background:#111827;top:853px}
+#sendOn{left:1569px;top:842px;width:64px;height:60px;border-radius:7px;
+  background:linear-gradient(90deg,#8d3fe8,#4566ea);box-shadow:0 6px 18px rgba(99,102,241,.28)}
+#sendOn svg{position:absolute;left:23px;top:21px}
+/* thread */
+#threadCover{left:519px;top:575px;width:1124px;height:244px;background:#fdfdfd}
+#userMsg{right:287px;top:590px;max-width:700px;padding:10px 16px;border-radius:14px 14px 4px 14px;color:#fff;
+  background:linear-gradient(90deg,#8d3fe8,#4566ea);line-height:20px;box-shadow:0 4px 14px rgba(99,102,241,.18)}
+#reply{left:529px;top:644px;width:1104px;border-radius:9px;border:1px solid #e4daee;overflow:hidden;
+  background:linear-gradient(90deg,#f9f5ff,#f6f1ff 60%,#f3f0ff)}
+#replyIcon{position:absolute;left:12px;top:14px;width:30px;height:24px;background:url(src.png) -539px -652px no-repeat}
+#replyText{position:absolute;left:52px;top:13px;width:1030px;line-height:22px;color:#6d28a8}
+#replyText b{font-weight:700;color:#5b1d91}
+#replyText .num{font-weight:600;color:#4c1d95}
+.w{opacity:0}
+#dots{position:absolute;left:52px;top:20px}
+#dots i{display:inline-block;width:6px;height:6px;border-radius:50%;background:#8b5cf6;margin-right:5px}
+/* stats */
+.cardGlow{position:absolute;border-radius:13px;overflow:hidden}
+.cardGlow .sweep{position:absolute;top:0;bottom:0;width:140px}
+.numGlow{position:absolute;border-radius:50%;filter:blur(10px)}
+#brainRing{left:525px;top:421px;width:48px;height:48px;border-radius:12px;border:1.5px solid rgba(139,92,246,.6)}
+#links{position:absolute;left:0;top:0;overflow:visible}
+/* cursor */
+#cursor{position:absolute;left:0;top:0;width:0;height:0}
+#cursor svg{position:absolute}
+#ripple{position:absolute;border-radius:50%;border:2px solid rgba(139,92,246,.55)}
+#vignette{position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse at 50% 50%,rgba(0,0,0,0) 70%,rgba(0,0,0,.16) 100%)}
+#fade{position:absolute;inset:0;background:#000;pointer-events:none}
+</style></head>
+<body>
+<div id="stage">
+  <div id="bg"><div class="glow" id="g1"></div><div class="glow" id="g2"></div><div class="glow" id="g3"></div><div id="particles"></div></div>
+  <div id="cam">
+    <div id="shadow"></div>
+    <div id="win" class="ui">
+      <!-- stat glows (screenshot coords, y-122) -->
+      <div class="numGlow" id="ng0"></div><div class="numGlow" id="ng1"></div><div class="numGlow" id="ng2"></div><div class="numGlow" id="ng3"></div>
+      <div class="cardGlow" id="cg0"><div class="sweep"></div></div>
+      <div class="cardGlow" id="cg1"><div class="sweep"></div></div>
+      <div class="cardGlow" id="cg2"><div class="sweep"></div></div>
+      <div class="cardGlow" id="cg3"><div class="sweep"></div></div>
+      <svg id="links" width="1920" height="958"></svg>
+      <div class="abs" id="brainRing"></div>
+      <!-- thread -->
+      <div class="abs" id="threadCover"></div>
+      <div class="abs" id="userMsg">Analyze my recent trades and tell me what I’m doing wrong.</div>
+      <div class="abs" id="reply"><div id="replyIcon"></div><div id="dots"><i></i><i></i><i></i></div><div id="replyText"></div></div>
+      <!-- input -->
+      <div class="abs" id="inRing"></div>
+      <div class="abs" id="inCover"></div>
+      <div class="abs" id="placeholder">Ask your mentor about your trading...</div>
+      <div class="abs" id="inText"></div>
+      <div id="caret"></div>
+      <div class="abs" id="sendOn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></div>
+      <div id="sheen"></div>
+      <div id="ripple"></div>
+      <div id="cursor">
+        <svg id="arrow" width="22" height="32" viewBox="0 0 22 32" style="left:-2px;top:-2px"><path d="M2 2 L2 25 L7.6 19.6 L11.6 28.6 L15.4 27 L11.5 18.2 L19 18.2 Z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <svg id="ibeam" width="12" height="24" viewBox="0 0 12 24" style="left:-6px;top:-12px"><path d="M2 2 Q6 2 6 5 L6 19 Q6 22 2 22 M10 2 Q6 2 6 5 M6 19 Q6 22 10 22 M3.5 12 L8.5 12" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/><path d="M2 2 Q6 2 6 5 L6 19 Q6 22 2 22 M10 2 Q6 2 6 5 M6 19 Q6 22 10 22 M3.5 12 L8.5 12" fill="none" stroke="#111" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </div>
+    </div>
+  </div>
+  <div id="vignette"></div>
+  <div id="fade"></div>
+</div>
+<script>
+const DUR = 10.0;
+const $ = id => document.getElementById(id);
+const clamp = (x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const ease=t=>{t=clamp(t);return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2};      // cubic in-out
+const ease5=t=>{t=clamp(t);return t*t*t*(t*(t*6-15)+10)};                    // smootherstep
+const eOut=t=>{t=clamp(t);return 1-Math.pow(1-t,3)};
+const seg=(t,a,b)=>clamp((t-a)/(b-a));
+const bell=(t,a,peak,b)=>t<a||t>b?0:(t<peak?ease((t-a)/(peak-a)):1-ease((t-peak)/(b-peak)));
+let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return (seed-1)/2147483646};
+const Y=y=>y-122; // screenshot -> window coords
+
+// ---------- camera keyframes: [time, zoom, focusX, focusY] (focus in screenshot coords)
+const CAM=[[0,1,960,601],[0.9,1,960,601],[2.75,1.62,1088,706],[4.7,1.645,1090,712],[6.0,1.5,1084,676],[7.95,1.53,1084,683],[9.35,1,960,601],[10,0.995,960,601]];
+function cam(t){
+  let i=0;while(i<CAM.length-2&&t>CAM[i+1][0])i++;
+  const a=CAM[i],b=CAM[i+1];const u=seg(t,a[0],b[0]);const k=ease5(u);
+  const ky=(b[1]<a[1])?ease5(1-Math.pow(1-u,1.7)):k; // on pull-back, lift framing early so the window edge reveals gently
+  return [lerp(a[1],b[1],k),lerp(a[2],b[2],k),lerp(a[3],b[3],ky)];
+}
+// ---------- typing
+const Q="Analyze my recent trades and tell me what I’m doing wrong.";
+const T_TYPE0=2.66, T_TYPE1=4.22;
+const typeTimes=(()=>{const w=[];for(let i=0;i<Q.length;i++){let d=.7+rnd()*.6;if(Q[i-1]===' ')d+=.35;w.push(d)}
+  const s=w.reduce((a,b)=>a+b,0);let acc=0;return w.map(d=>{acc+=d;return T_TYPE0+(acc-d)/s*(T_TYPE1-T_TYPE0)})})();
+// ---------- reply
+const REPLY=[["b","Here’s what your 49 trades show."],["t"," Your edge is real — a "],["n","55.1%",0],["t"," win rate and a "],["n","2.33",2],["t"," profit factor have produced "],["n","+$10212",1],["t",". What’s hurting you is how you trade after a loss: you’re on a "],["n","2-loss",3],["t"," streak right now, and that’s where discipline slips. This week, stop for the day after two straight losses and only take your A+ setups."]];
+const T_REPLY0=6.15, T_REPLY1=7.85;
+const words=[];const statHit=[null,null,null,null];
+(function build(){
+  const rt=$('replyText');
+  REPLY.forEach(([k,txt,stat])=>{
+    const parent=k==='b'?document.createElement('b'):null; if(parent)rt.appendChild(parent);
+    txt.split(/(\s+)/).forEach(tok=>{
+      if(!tok)return;
+      if(/^\s+$/.test(tok)){(parent||rt).appendChild(document.createTextNode(tok));return}
+      const s=document.createElement('span');s.className='w'+(k==='n'?' num':'');s.textContent=tok;(parent||rt).appendChild(s);
+      words.push({el:s,stat});
+    });
+  });
+  const n=words.length;words.forEach((w,i)=>{w.t=T_REPLY0+(i/n)*(T_REPLY1-T_REPLY0)+(rnd()-.5)*.02;if(w.stat!=null)statHit[w.stat]=w.t});
+})();
+// ---------- stats
+const CARDS=[[506,333,278,81,'16,185,129',[522,368,70,28]],[797,333,278,81,'16,185,129',[813,368,100,28]],[1088,333,278,81,'16,185,129',[1104,368,52,28]],[1379,333,278,81,'220,38,38',[1395,368,88,28]]];
+CARDS.forEach((c,i)=>{const g=$('cg'+i);Object.assign(g.style,{left:c[0]+'px',top:Y(c[1])+'px',width:c[2]+'px',height:c[3]+'px'});
+  g.firstChild.style.background=`linear-gradient(90deg,rgba(${c[4]},0),rgba(${c[4]},.09),rgba(${c[4]},0))`;
+  const n=$('ng'+i),r=c[5];Object.assign(n.style,{left:(r[0]-14)+'px',top:Y(r[1])-10+'px',width:(r[2]+28)+'px',height:(r[3]+20)+'px',background:`rgba(${c[4]},.16)`});});
+// links: card bottom -> mentor brain icon
+const BRAIN=[549,547];
+const linkPaths=CARDS.map((c,i)=>{const x=c[0]+c[2]/2,y=Y(c[1]+c[3]);const bx=BRAIN[0]+ (i-1.5)*4,by=Y(BRAIN[1])-2;
+  return `M${x},${y} C${x},${y+70} ${bx+60},${by-60} ${bx},${by}`});
+const svg=$('links');
+svg.innerHTML=`<defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34d399"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient>
+<filter id="bl"><feGaussianBlur stdDeviation="2.2"/></filter></defs>`+
+linkPaths.map((d,i)=>`<path id="lp${i}" d="${d}" fill="none" stroke="url(#lg)" stroke-width="1.4" stroke-linecap="round"/>
+<circle id="ld${i}" r="3.2" fill="#a78bfa" filter="url(#bl)"/><circle id="lc${i}" r="1.6" fill="#fff"/>`).join('');
+const pathEls=linkPaths.map((_,i)=>$('lp'+i));const pathLen=pathEls.map(p=>p.getTotalLength());
+pathEls.forEach((p,i)=>{p.style.strokeDasharray=pathLen[i];});
+// ---------- particles
+const PTS=[];(function(){const box=$('particles');for(let i=0;i<90;i++){const e=document.createElement('div');e.className='pt';const s=.8+rnd()*1.9;
+  Object.assign(e.style,{width:s+'px',height:s+'px'});box.appendChild(e);
+  PTS.push({e,x:rnd()*2320,y:rnd()*1480,v:6+rnd()*14,a:.08+rnd()*.28,ph:rnd()*6.28,f:.4+rnd()*.9,dx:(rnd()-.5)*8});}})();
+// ---------- cursor path
+function bez(p0,p1,p2,k){return [(1-k)*(1-k)*p0[0]+2*(1-k)*k*p1[0]+k*k*p2[0],(1-k)*(1-k)*p0[1]+2*(1-k)*k*p1[1]+k*k*p2[1]]}
+function cursorState(t){
+  // returns [x,y,opacity,mode,press]
+  const IN=[860,994], SEND=[1601,993];
+  if(t<1.35) return [1340,905,0,'arrow',0];
+  if(t<2.4){const k=ease(seg(t,1.35,2.4));const p=bez([1340,905],[1150,1000],IN,k);return [p[0],p[1],seg(t,1.35,1.6),k>.82?'ibeam':'arrow',0]}
+  if(t<2.75){return [IN[0],IN[1],1-seg(t,2.6,2.75),'ibeam',bell(t,2.42,2.48,2.58)]}
+  if(t<4.3) return [IN[0],IN[1],0,'ibeam',0];
+  if(t<4.8){const k=ease(seg(t,4.32,4.78));const p=bez([1360,1030],[1500,1040],SEND,k);return [p[0],p[1],seg(t,4.3,4.45),'arrow',0]}
+  if(t<5.6) return [SEND[0],SEND[1],1-seg(t,5.25,5.6),'arrow',bell(t,4.8,4.86,4.98)];
+  return [SEND[0],SEND[1],0,'arrow',0];
+}
+
+function render(t){
+  // fade in/out
+  $('fade').style.opacity = Math.max(1-seg(t,0,.35), seg(t,DUR-.35,DUR));
+  // camera
+  const [z,fx,fy]=cam(t);
+  const wx=96+.9*fx, wy=109+.9*Y(fy);
+  $('cam').style.transform=`translate(${960-z*wx}px,${540-z*wy}px) scale(${z})`;
+  // parallax backdrop (moves ~25% of camera)
+  const pz=1+(z-1)*.22;const px=(960-wx)*(z-1)*.25,py=(540-wy)*(z-1)*.25;
+  $('bg').style.transform=`translate(${px}px,${py}px) scale(${pz})`;
+  // light drift
+  const g=(id,x,y)=>{$(id).style.transform=`translate(${x}px,${y}px)`};
+  g('g1',150+Math.sin(t*.35)*90,40+Math.cos(t*.28)*60);
+  g('g2',1250+Math.cos(t*.3)*80,700+Math.sin(t*.25)*60);
+  g('g3',900+Math.sin(t*.22+1)*120,180+Math.cos(t*.31)*50);
+  PTS.forEach(p=>{const y=((p.y-p.v*t)%1480+1480)%1480;const x=p.x+Math.sin(t*.5+p.ph)*p.dx;
+    p.e.style.transform=`translate(${x}px,${y}px)`;p.e.style.opacity=p.a*(.55+.45*Math.sin(t*p.f*2+p.ph));});
+  // sheen on pull-back
+  const sh=seg(t,7.9,9.6);$('sheen').style.opacity=bell(t,7.9,8.7,9.6)*.9;$('sheen').style.backgroundPosition=`${lerp(120,-20,ease(sh))}% 0`;
+
+  // ---------- input states
+  const focused=t>=2.48;
+  $('inRing').style.opacity=seg(t,2.48,2.62);
+  const typed=Q.slice(0,typeTimes.filter(x=>x<=t).length);
+  const sent=t>=4.86;
+  const txt=sent?'':typed;
+  $('inText').textContent=txt;
+  $('inCover').style.opacity=focused?1:0;
+  $('placeholder').style.opacity=focused&&txt.length===0?1:0;
+  // caret
+  const tw=$('inText').offsetWidth;
+  $('caret').style.left=(542+(txt.length?tw:0)+.5)+'px';
+  const lastKey=txt.length?typeTimes[txt.length-1]:2.48;
+  const blinkOn=(t-lastKey)<.45||Math.floor((t-lastKey-.45)/.5)%2===1;
+  $('caret').style.opacity=focused&&blinkOn&&!(sent&&t<4.95)?1:0;
+  // send button enabled
+  $('sendOn').style.opacity=sent?1-seg(t,4.9,5.1):(txt.length?seg(t,typeTimes[0],typeTimes[0]+.15):0);
+  const press=bell(t,4.8,4.86,4.98);
+  $('sendOn').style.transform=`scale(${1-.05*press})`;
+
+  // ---------- thread
+  $('threadCover').style.opacity=seg(t,4.9,5.15);
+  const um=eOut(seg(t,4.95,5.3));$('userMsg').style.opacity=um;$('userMsg').style.transform=`translateY(${(1-um)*10}px)`;
+  const rp=eOut(seg(t,5.3,5.6));$('reply').style.opacity=rp;$('reply').style.transform=`translateY(${(1-rp)*8}px)`;
+  const dotsOn=t<T_REPLY0;$('dots').style.opacity=dotsOn?1-seg(t,T_REPLY0-.08,T_REPLY0):0;
+  [...$('dots').children].forEach((d,i)=>{const ph=(t*2.2-i*.18)%1;const b=Math.max(0,Math.sin(ph*Math.PI));d.style.transform=`translateY(${-3*b}px)`;d.style.opacity=.35+.65*b});
+  let lines={};
+  words.forEach(w=>{const o=seg(t,w.t,w.t+.09);w.el.style.opacity=o;});
+  // reply box height grows smoothly per line
+  let h=48;
+  words._tops=words.map(w=>w.el.offsetTop);
+  const lineStarts={};words.forEach((w,i)=>{const tp=words._tops[i];if(!(tp in lineStarts))lineStarts[tp]=w.t});
+  Object.keys(lineStarts).map(Number).sort((a,b)=>a-b).forEach((tp,i)=>{if(i>0)h+=22*ease(seg(t,lineStarts[tp],lineStarts[tp]+.14))});
+  $('reply').style.height=h+'px';
+
+  // ---------- stats emphasis
+  const ANA0=5.3;
+  CARDS.forEach((c,i)=>{
+    const s0=ANA0+i*.16;
+    let a=bell(t,s0,s0+.35,s0+1.4)*.85;                         // analysis sweep
+    if(statHit[i]) a=Math.max(a,bell(t,statHit[i]-.05,statHit[i]+.18,statHit[i]+1.1));  // mention pulse
+    a=Math.max(a,.22*seg(t,6.2,6.6)*(1-seg(t,8.0,8.8)));        // faint residual while reading
+    const g=$('cg'+i);
+    g.style.boxShadow=`0 0 0 1px rgba(${c[4]},${.30*a}),0 0 26px rgba(${c[4]},${.22*a}),0 8px 30px rgba(${c[4]},${.10*a})`;
+    g.style.background=`rgba(${c[4]},${.025*a})`;
+    const sw=g.firstChild;const k=seg(t,s0,s0+.9);sw.style.opacity=k>0&&k<1?1:0;sw.style.transform=`translateX(${lerp(-160,300,ease(k))}px)`;
+    $('ng'+i).style.opacity=a*.9;
+  });
+  // data links
+  linkPaths.forEach((_,i)=>{
+    const s0=ANA0+.1+i*.16;const k=seg(t,s0,s0+.7);
+    const vis=bell(t,s0,s0+.5,s0+1.5);
+    const p=pathEls[i];p.style.strokeDashoffset=pathLen[i]*(1-ease(k));p.style.opacity=vis*.28;
+    const dk=seg(t,s0+.05,s0+.85);const pt=p.getPointAtLength(pathLen[i]*ease(dk));
+    const dv=dk>0&&dk<1?Math.sin(dk*Math.PI):0;
+    ['ld','lc'].forEach(pre=>{const e=$(pre+i);e.setAttribute('cx',pt.x);e.setAttribute('cy',pt.y);e.style.opacity=dv*(pre==='ld'?.9:.85)});
+  });
+  const br=bell(t,5.85,6.15,7.0);$('brainRing').style.opacity=br*.9;$('brainRing').style.transform=`scale(${1+.18*seg(t,5.85,7.0)})`;
+  $('brainRing').style.boxShadow=`0 0 22px rgba(139,92,246,${.45*br})`;
+
+  // ---------- cursor
+  const [cx,cy,co,mode,pr]=cursorState(t);
+  const cu=$('cursor');cu.style.transform=`translate(${cx}px,${Y(cy)}px) scale(${1-.12*pr})`;cu.style.opacity=co;
+  $('arrow').style.display=mode==='arrow'?'block':'none';$('ibeam').style.display=mode==='ibeam'?'block':'none';
+  // click ripple
+  const clicks=[[860,994,2.46],[1601,993,4.84]];let rv=0,rx=0,ry=0,rs=0;
+  clicks.forEach(([x,y,tc])=>{const k=seg(t,tc,tc+.55);if(k>0&&k<1){rv=(1-k)*.8;rx=x;ry=y;rs=8+34*eOut(k)}});
+  Object.assign($('ripple').style,{opacity:rv,left:(rx-rs)+'px',top:(Y(ry)-rs)+'px',width:2*rs+'px',height:2*rs+'px'});
+}
+window.render=render;window.DUR=DUR;
+render(0);
+</script>
+</body></html>
