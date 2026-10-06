@@ -1,0 +1,396 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>DCCN Loans Journey</title>
+<style>
+@font-face{font-family:Inter;src:url(fonts/Inter-400.ttf);font-weight:400}
+@font-face{font-family:Inter;src:url(fonts/Inter-500.ttf);font-weight:500}
+@font-face{font-family:Inter;src:url(fonts/Inter-600.ttf);font-weight:600}
+@font-face{font-family:Inter;src:url(fonts/Inter-700.ttf);font-weight:700}
+@font-face{font-family:SG;src:url(fonts/SpaceGrotesk-500.ttf);font-weight:500}
+@font-face{font-family:SG;src:url(fonts/SpaceGrotesk-600.ttf);font-weight:600}
+@font-face{font-family:SG;src:url(fonts/SpaceGrotesk-700.ttf);font-weight:700}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#04050a}
+#stage{position:absolute;inset:0;overflow:hidden;font-family:Inter;-webkit-font-smoothing:antialiased}
+#bg{position:absolute;left:-200px;top:-200px;width:2320px;height:1480px;transform-origin:1160px 740px;
+  background:radial-gradient(1200px 900px at 50% 45%,#11132a 0%,#090b18 50%,#04050a 100%)}
+.glow{position:absolute;border-radius:50%;filter:blur(60px)}
+#g1{width:1100px;height:800px;background:radial-gradient(closest-side,rgba(103,87,245,.30),rgba(103,87,245,0))}
+#g2{width:1000px;height:760px;background:radial-gradient(closest-side,rgba(56,120,246,.18),rgba(56,120,246,0))}
+#g3{width:700px;height:520px;background:radial-gradient(closest-side,rgba(0,209,146,.10),rgba(0,209,146,0))}
+#particles{position:absolute;inset:0}
+.pt{position:absolute;border-radius:50%;background:#c7d2fe}
+#cam{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
+#shadow{position:absolute;left:96px;top:109px;width:1728px;height:862.2px;border-radius:14.4px;
+  box-shadow:0 50px 140px rgba(0,0,0,.7),0 18px 50px rgba(0,0,0,.5),0 0 140px rgba(103,87,245,.18)}
+#win{position:absolute;left:96px;top:109px;width:1920px;height:958px;transform:scale(.9);transform-origin:0 0;
+  border-radius:16px;overflow:hidden;background:#0b0e16;box-shadow:0 0 0 1px rgba(255,255,255,.08)}
+.scene{position:absolute;inset:0;overflow:hidden}
+.shot{position:absolute;inset:0;background-repeat:no-repeat;background-position:0 -122px}
+.abs{position:absolute}
+/* ---- apply page overlays ---- */
+#selCover{left:780px;top:405px;width:560px;height:30px;background:#191d2b}
+#selText{left:787px;top:409px;font-size:14px;line-height:20px;color:#e5e7eb;white-space:nowrap}
+#selText .mono{font-family:'DejaVu Sans Mono',monospace;font-size:12.5px;color:#9ca3af}
+#selRing,#amtRing{border-radius:8px;border:1px solid rgba(124,108,255,.85);box-shadow:0 0 0 3px rgba(103,87,245,.18)}
+#selRing{left:774px;top:401px;width:622px;height:36px}
+#amtRing{left:774px;top:487px;width:622px;height:36px}
+#menu{left:774px;top:442px;width:622px;border-radius:10px;background:#1b1f2e;border:1px solid #2c3246;
+  box-shadow:0 18px 40px rgba(0,0,0,.55);padding:6px;transform-origin:50% 0}
+.opt{display:flex;align-items:center;gap:12px;height:46px;padding:0 12px;border-radius:7px;color:#e5e7eb;font-size:14px}
+.opt .eth{width:28px;height:28px;border-radius:50%;background:#262a45;color:#8b7dff;display:flex;align-items:center;justify-content:center;font-size:14px}
+.opt .mono{font-family:'DejaVu Sans Mono',monospace;font-size:12px;color:#8b93a7}
+.opt .ver{margin-left:auto;font-size:12px;font-weight:600;color:#00d192;background:rgba(0,209,146,.12);border:1px solid rgba(0,209,146,.35);padding:2px 8px;border-radius:6px}
+#amtCover{left:800px;top:494px;width:60px;height:22px;background:#151926}
+#amtText{left:803px;top:495px;font-size:14.5px;line-height:20px;color:#f3f4f6;white-space:pre}
+#amtCaret{position:absolute;width:1.3px;height:16px;background:#e5e7eb;top:497px}
+#helpCover{left:772px;top:525px;width:300px;height:20px;background:#111420}
+#cont{left:774px;top:567px;width:622px;height:36px;border-radius:8px;background:#6757f5;color:#fff;font-weight:600;font-size:14.5px;
+  display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 8px 24px rgba(103,87,245,.35)}
+#formDim{left:749px;top:112px;width:672px;height:814px;border-radius:12px;background:rgba(11,14,22,.62)}
+.stepFill{position:absolute;width:30px;height:30px;border-radius:50%;background:#6757f5;color:#fff;font-size:13px;font-weight:600;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 4px rgba(103,87,245,.18),0 0 18px rgba(103,87,245,.45)}
+.stepLine{position:absolute;height:2px;background:linear-gradient(90deg,#6757f5,#8b7dff);border-radius:2px;transform-origin:0 50%}
+/* processing card */
+#proc{left:785px;top:350px;width:600px;height:250px;border-radius:18px;background:#121524;border:1px solid #262b3f;
+  box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 1px rgba(103,87,245,.08);text-align:center}
+#procIcon{position:absolute;left:270px;top:34px;width:60px;height:60px}
+#procT1{position:absolute;left:0;right:0;top:112px;font-family:SG;font-weight:700;font-size:27px;color:#fff}
+#procT2{position:absolute;left:0;right:0;top:154px;font-size:15.5px;color:#9aa3b8}
+#procBar{position:absolute;left:150px;width:300px;top:200px;height:4px;border-radius:4px;background:#1f2436;overflow:hidden}
+#procBar i{position:absolute;top:0;bottom:0;width:120px;border-radius:4px;background:linear-gradient(90deg,rgba(103,87,245,0),#8b7dff,rgba(103,87,245,0))}
+/* inbox */
+#inbox{background:#fff;color:#111827}
+#rail{position:absolute;left:0;top:0;width:220px;height:100%;background:#f5f6fa;border-right:1px solid #e8eaf0;padding:26px 18px}
+#rail .brand{font-weight:700;font-size:17px;margin-bottom:24px;display:flex;align-items:center;gap:10px}
+#rail .brand i{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#94a3b8,#64748b);display:inline-block}
+#rail .compose{height:38px;border-radius:10px;background:#111827;color:#fff;font-weight:600;font-size:14px;display:flex;align-items:center;justify-content:center;margin-bottom:20px}
+.ri{height:36px;display:flex;align-items:center;padding:0 12px;border-radius:8px;font-size:14px;color:#374151}
+.ri.on{background:#e8eaf3;font-weight:600;color:#111827}
+.ri b{margin-left:auto;font-size:12px;color:#6757f5}
+#list{position:absolute;left:220px;top:0;width:500px;height:100%;border-right:1px solid #e8eaf0}
+#list .hd{height:64px;display:flex;align-items:center;padding:0 22px;font-weight:700;font-size:18px;border-bottom:1px solid #eef0f4}
+.mrow{position:absolute;left:0;width:500px;height:84px;padding:14px 22px 0 22px;border-bottom:1px solid #f0f1f5;font-size:13.5px}
+.mrow .who{font-weight:600;display:flex}.mrow .who span{margin-left:auto;font-weight:400;font-size:12px;color:#9ca3af}
+.mrow .sub{margin-top:4px;color:#374151}.mrow .pre{margin-top:3px;color:#9ca3af;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#newRow{background:#f6f5ff}
+#newRow .who{color:#111827}#newRow .sub{font-weight:600;color:#111827}
+#newRow .dot{position:absolute;left:8px;top:22px;width:7px;height:7px;border-radius:50%;background:#6757f5}
+#pane{position:absolute;left:720px;top:0;right:0;height:100%;background:#fafbfd}
+#empty{position:absolute;left:0;right:0;top:420px;text-align:center;color:#c0c5d0;font-size:14px}
+#email{position:absolute;left:150px;top:46px;width:760px;height:860px}
+#email .meta{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+.dlogo{width:40px;height:40px;border-radius:50%;background:#6757f5;color:#fff;font-family:SG;font-weight:700;font-size:18px;display:flex;align-items:center;justify-content:center}
+#email .meta .n{font-weight:600;font-size:14.5px}#email .meta .a{font-size:12.5px;color:#6b7280}
+#email .meta .tm{margin-left:auto;font-size:12.5px;color:#9ca3af}
+#email h2{font-size:21px;font-weight:700;margin-bottom:22px}
+#card{border-radius:16px;background:#0f1220;color:#e5e7eb;padding:34px 40px;box-shadow:0 20px 50px rgba(15,18,32,.18)}
+#card .top{display:flex;align-items:center;gap:10px;font-family:SG;font-weight:700;font-size:20px;color:#fff;margin-bottom:26px}
+#card .top i{width:30px;height:30px;border-radius:50%;background:#6757f5;font-style:normal;font-size:15px;display:flex;align-items:center;justify-content:center}
+#badge{display:inline-flex;align-items:center;gap:10px;padding:10px 18px;border-radius:12px;background:rgba(0,209,146,.12);border:1px solid rgba(0,209,146,.45);
+  color:#00d192;font-family:SG;font-weight:700;font-size:24px;letter-spacing:.06em}
+#card h3{font-family:SG;font-size:28px;font-weight:700;color:#fff;margin:22px 0 10px}
+#card p{font-size:15px;line-height:24px;color:#a7afc2}
+#card table{width:100%;margin:22px 0 18px;border-collapse:collapse;font-size:14px}
+#card td{padding:10px 0;border-top:1px solid #23283a;color:#a7afc2}#card td+td{text-align:right;color:#f3f4f6;font-weight:600}
+#card .next{font-size:13.5px;color:#a7afc2;background:#161a2b;border:1px solid #262b3f;border-radius:10px;padding:12px 14px}
+#card .btn{display:inline-block;margin-top:20px;background:#6757f5;color:#fff;font-weight:600;font-size:14px;padding:11px 20px;border-radius:9px}
+#toast{left:1500px;top:22px;width:396px;height:76px;border-radius:14px;background:rgba(255,255,255,.96);border:1px solid #e6e8ef;
+  box-shadow:0 18px 40px rgba(17,24,39,.16);display:flex;align-items:center;gap:12px;padding:0 16px}
+#toast .t1{font-weight:600;font-size:13.5px}#toast .t2{font-size:13px;color:#4b5563;margin-top:2px}#toast .t0{margin-left:auto;align-self:flex-start;margin-top:14px;font-size:11.5px;color:#9ca3af}
+/* dashboard additions */
+#listWrap{position:absolute;left:545px;top:308px;width:1080px;height:488px;overflow:hidden;background:#111420}
+#listShot{position:absolute;left:0;top:0;width:1080px;height:476px;background:url(dash.png) no-repeat -545px -430px}
+.arow{position:absolute;left:0;width:1080px;height:50px}
+.arow .d{position:absolute;left:17px;top:6px;width:9px;height:9px;border-radius:50%;background:#00d192}
+.arow .e{position:absolute;left:39px;top:0;width:20px;height:20px;font-size:16px;line-height:20px;font-family:'Noto Color Emoji'}
+.arow .e.ok{background:url(dash.png) -584px -615px no-repeat}
+.arow .t{position:absolute;left:63px;top:1px;font-size:14.4px;font-weight:600;color:#f3f4f6;line-height:20px}
+.arow .s{position:absolute;left:39px;top:22px;font-size:12.4px;color:#8b93a7;line-height:18px;white-space:nowrap}
+.arow .w{position:absolute;right:17px;top:2px;font-size:12.4px;color:#8b93a7}
+.arow .hl{position:absolute;left:4px;right:4px;top:-6px;bottom:-2px;border-radius:10px;background:rgba(0,209,146,.07);border:1px solid rgba(0,209,146,.28)}
+#fundsPill{left:1085px;top:236px;padding:14px 26px;border-radius:14px;background:rgba(10,30,26,.92);border:1px solid rgba(0,209,146,.55);
+  color:#00d192;font-family:SG;font-weight:700;font-size:30px;letter-spacing:.06em;box-shadow:0 0 50px rgba(0,209,146,.25),0 20px 50px rgba(0,0,0,.5);white-space:nowrap}
+#applyHover{left:1501px;top:42px;width:128px;height:32px;border-radius:7px;box-shadow:0 0 0 3px rgba(103,87,245,.28),0 0 24px rgba(103,87,245,.5)}
+/* cursor */
+#cursor{position:absolute;left:0;top:0;width:0;height:0}
+#cursor svg{position:absolute}
+#ripple{position:absolute;border-radius:50%;border:2px solid rgba(139,125,255,.7)}
+#sheen{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(115deg,rgba(255,255,255,0) 40%,rgba(255,255,255,.07) 50%,rgba(255,255,255,0) 60%);background-size:300% 100%}
+/* end card */
+#end{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+#end .lg{display:flex;align-items:center;gap:18px}
+#end .lg i{width:74px;height:74px;border-radius:18px;background:#6757f5;color:#fff;font-style:normal;font-family:SG;font-weight:700;font-size:36px;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 0 60px rgba(103,87,245,.55)}
+#end .lg span{font-family:SG;font-weight:700;font-size:58px;color:#fff;letter-spacing:.01em}
+#end .tag{margin-top:30px;font-size:26px;color:#c9cee0;font-weight:500}
+#end .fine{position:absolute;bottom:56px;font-size:13.5px;color:#5d6478}
+#vignette{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,rgba(0,0,0,0) 70%,rgba(0,0,0,.2) 100%)}
+#fade{position:absolute;inset:0;background:#000;pointer-events:none}
+</style></head>
+<body>
+<div id="stage">
+  <div id="bg"><div class="glow" id="g1"></div><div class="glow" id="g2"></div><div class="glow" id="g3"></div><div id="particles"></div></div>
+  <div id="cam">
+    <div id="shadow"></div>
+    <div id="win">
+      <!-- SCENE: dashboard -->
+      <div class="scene" id="sDash">
+        <div class="shot" style="background-image:url(dash.png)"></div>
+        <div class="abs" id="applyHover"></div>
+        <div id="listWrap"><div id="listShot"></div>
+          <div class="arow" id="ar0"><div class="hl"></div><div class="d"></div><div class="e">💸</div><div class="t">Funds Sent</div><div class="s">$50.00 payout sent via Zelle — 444-444-4444</div><div class="w">Just now</div></div>
+          <div class="arow" id="ar1"><div class="d"></div><div class="e">🔒</div><div class="t">Escrow Transfer Confirmed</div><div class="s">Collateral received in escrow.</div><div class="w">Just now</div></div>
+          <div class="arow" id="ar2"><div class="d"></div><div class="e ok"></div><div class="t">Loan Approved</div><div class="s">Approved by DCCN Loans. Payout via Zelle. Borrower instructed to complete escrow transfer.</div><div class="w">Just now</div></div>
+        </div>
+        <div class="abs" id="fundsPill">✓&nbsp; FUNDS SENT</div>
+      </div>
+      <!-- SCENE: apply -->
+      <div class="scene" id="sApply">
+        <div class="shot" style="background-image:url(apply.png)"></div>
+        <div class="abs" id="helpCover"></div>
+        <div class="abs" id="selRing"></div>
+        <div class="abs" id="selCover"></div>
+        <div class="abs" id="selText">0.0000 ETH &nbsp;<span class="mono">0x94c7c2...b30d24</span></div>
+        <div class="abs" id="amtRing"></div>
+        <div class="abs" id="amtCover"></div>
+        <div class="abs" id="amtText"></div>
+        <div id="amtCaret"></div>
+        <div class="abs" id="cont">Continue <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        <div class="abs" id="menu"><div class="opt" id="opt"><div class="eth">Ξ</div><div>0.0000 ETH</div><div class="mono">0x94c7c2...b30d24</div><div class="ver">✓ Verified</div></div></div>
+        <div class="abs" id="formDim"></div>
+        <div id="steps"></div>
+        <div class="abs" id="proc">
+          <svg id="procIcon" viewBox="0 0 60 60"><circle cx="30" cy="30" r="26" fill="none" stroke="#23283d" stroke-width="4"/>
+            <circle id="spin" cx="30" cy="30" r="26" fill="none" stroke="#7c6cff" stroke-width="4" stroke-linecap="round" stroke-dasharray="50 200" transform="rotate(0 30 30)"/>
+            <circle id="okC" cx="30" cy="30" r="28" fill="#6757f5"/><path id="okP" d="M19 31 l7 7 l15 -16" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="40" /></svg>
+          <div id="procT1">Application Submitted</div>
+          <div id="procT2">Your application is being reviewed.</div>
+          <div id="procBar"><i></i></div>
+        </div>
+      </div>
+      <!-- SCENE: inbox -->
+      <div class="scene" id="sInbox"><div class="scene" id="inbox">
+        <div id="rail"><div class="brand"><i></i>Mail</div><div class="compose">Compose</div>
+          <div class="ri on">Inbox<b id="cnt">1</b></div><div class="ri">Starred</div><div class="ri">Sent</div><div class="ri">Drafts</div><div class="ri">Archive</div></div>
+        <div id="list"><div class="hd">Inbox</div>
+          <div id="rows">
+            <div class="mrow" id="newRow"><div class="dot"></div><div class="who">DCCN Loans<span>Just now</span></div><div class="sub">Your Loan Has Been Approved</div><div class="pre">Your loan application has been reviewed and approved…</div></div>
+            <div class="mrow mo"><div class="who">Weekly Digest<span>9:12 AM</span></div><div class="sub">Your week at a glance</div><div class="pre">Here's a quick summary of what happened this week…</div></div>
+            <div class="mrow mo"><div class="who">Order Update<span>Yesterday</span></div><div class="sub">Your order is on its way</div><div class="pre">Track your package and see delivery details…</div></div>
+            <div class="mrow mo"><div class="who">Events<span>Mon</span></div><div class="sub">Reminder: upcoming session</div><div class="pre">Just a reminder about your session on Thursday…</div></div>
+            <div class="mrow mo"><div class="who">Newsletter<span>Sun</span></div><div class="sub">October highlights</div><div class="pre">A roundup of product news and stories…</div></div>
+          </div></div>
+        <div id="pane"><div id="empty">No message selected</div>
+          <div id="email">
+            <div class="meta"><div class="dlogo">D</div><div><div class="n">DCCN Loans</div><div class="a">to joshua ovadia</div></div><div class="tm">Just now</div></div>
+            <h2>Your Loan Has Been Approved</h2>
+            <div id="card"><div class="top"><i>D</i>DCCN</div>
+              <div id="badge">✓&nbsp; LOAN APPROVED</div>
+              <h3>Your Loan Has Been Approved</h3>
+              <p>Hi joshua, your loan application has been reviewed and approved. It is now moving to funding.</p>
+              <table><tr><td>Loan amount</td><td>$50.00</td></tr><tr><td>Payout method</td><td>Zelle — 444-444-4444</td></tr><tr><td>Status</td><td style="color:#00d192">Approved · Moving to funding</td></tr></table>
+              <div class="next">Next step: complete your collateral escrow transfer from your dashboard to release funding.</div>
+              <div class="btn">View Dashboard →</div>
+            </div>
+          </div>
+        </div>
+        <div class="abs" id="toast"><div class="dlogo" style="width:38px;height:38px;font-size:17px;border-radius:10px">D</div><div><div class="t1">DCCN Loans</div><div class="t2">Your Loan Has Been Approved</div></div><div class="t0">now</div></div>
+      </div></div>
+      <div id="sheen"></div>
+      <div id="ripple"></div>
+      <div id="cursor">
+        <svg id="arrow" width="22" height="32" viewBox="0 0 22 32" style="left:-2px;top:-2px"><path d="M2 2 L2 25 L7.6 19.6 L11.6 28.6 L15.4 27 L11.5 18.2 L19 18.2 Z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <svg id="ibeam" width="12" height="24" viewBox="0 0 12 24" style="left:-6px;top:-12px"><path d="M2 2 Q6 2 6 5 L6 19 Q6 22 2 22 M10 2 Q6 2 6 5 M6 19 Q6 22 10 22 M3.5 12 L8.5 12" fill="none" stroke="#111" stroke-width="3.2" stroke-linecap="round"/><path d="M2 2 Q6 2 6 5 L6 19 Q6 22 2 22 M10 2 Q6 2 6 5 M6 19 Q6 22 10 22 M3.5 12 L8.5 12" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </div>
+    </div>
+  </div>
+  <div id="end"><div class="lg"><i>D</i><span>DCCN Loans</span></div><div class="tag">From application to funding, made simple.</div>
+    <div class="fine">Representative customer journey. Loans are subject to eligibility, wallet verification, collateral and approval. Timing varies.</div></div>
+  <div id="vignette"></div>
+  <div id="fade"></div>
+</div>
+<script>
+const DUR=20.0;
+const $=id=>document.getElementById(id);
+const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const ease=t=>{t=clamp(t);return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2};
+const ease5=t=>{t=clamp(t);return t*t*t*(t*(t*6-15)+10)};
+const eOut=t=>{t=clamp(t);return 1-Math.pow(1-t,3)};
+const seg=(t,a,b)=>clamp((t-a)/(b-a));
+const bell=(t,a,p,b)=>t<a||t>b?0:(t<p?ease((t-a)/(p-a)):1-ease((t-p)/(b-p)));
+let seed=11;const rnd=()=>{seed=(seed*16807)%2147483647;return (seed-1)/2147483646};
+const Y=y=>y-122;   // screenshot y -> window y
+
+// ---------------- timeline (seconds)
+const T={
+  dashClick:2.95, toApply:[3.2,3.75],
+  selClick:4.55, selPick:5.15, amtClick:5.75, type:[5.95,6.25], contClick:6.85,
+  steps:[7.0,8.25], proc:[8.35,10.5], toInbox:[10.45,11.0],
+  toast:11.25, rowClick:12.15, emailIn:12.3, toDash:[14.35,14.95],
+  rows:[15.25,15.85,16.45], pill:[16.6,17.9], pull:[17.6,18.6], toEnd:[18.45,19.05]
+};
+// camera keyframes [t, zoom, fx, fy] in screenshot coords (scene-agnostic window coords)
+const CAM=[[0,1,960,601],[0.7,1,960,601],[2.5,1.32,1130,566],[3.75,1.36,1100,575],[6.9,1.42,1090,560],
+  [8.25,1.62,1110,498],[9.0,1.5,1085,560],[10.5,1.48,1085,560],[11.0,1.05,980,601],[12.2,1.12,1050,590],
+  [13.2,1.5,1185,560],[14.35,1.56,1185,556],[14.95,1.3,1100,560],[17.6,1.34,1100,560],[18.6,1,960,601],[20,.98,960,601]];
+function cam(t){let i=0;while(i<CAM.length-2&&t>CAM[i+1][0])i++;const a=CAM[i],b=CAM[i+1];const k=ease5(seg(t,a[0],b[0]));
+  return [lerp(a[1],b[1],k),lerp(a[2],b[2],k),lerp(a[3],b[3],k)];}
+
+// ---------------- stepper overlays (screenshot coords)
+const STEP_X=[759,897,1011,1157,1289,1438], STEP_Y=185;
+(function(){const box=$('steps');
+  for(let i=0;i<5;i++){const l=document.createElement('div');l.className='stepLine';l.id='sl'+i;
+    const x0=[835,939,1105,1240,1386][i], x1=[876,986,1137,1268,1415][i];
+    Object.assign(l.style,{left:x0+'px',top:(Y(STEP_Y)-1)+'px',width:(x1-x0)+'px'});box.appendChild(l);}
+  STEP_X.forEach((x,i)=>{const s=document.createElement('div');s.className='stepFill';s.id='sf'+i;
+    Object.assign(s.style,{left:(x-15)+'px',top:(Y(STEP_Y)-15)+'px'});box.appendChild(s);});
+})();
+// ---------------- inbox row layout
+[...document.querySelectorAll('#rows .mrow')].forEach((r,i)=>{r.style.top=(64+i*84)+'px'});
+// ---------------- particles
+const PTS=[];(function(){const box=$('particles');for(let i=0;i<90;i++){const e=document.createElement('div');e.className='pt';const s=.8+rnd()*1.9;
+  Object.assign(e.style,{width:s+'px',height:s+'px'});box.appendChild(e);
+  PTS.push({e,x:rnd()*2320,y:rnd()*1480,v:6+rnd()*14,a:.08+rnd()*.28,ph:rnd()*6.28,f:.4+rnd()*.9,dx:(rnd()-.5)*8});}})();
+
+// ---------------- cursor path: list of [t, x, y, mode] waypoints (screenshot coords) + clicks
+function bez(p0,p1,p2,k){return [(1-k)*(1-k)*p0[0]+2*(1-k)*k*p1[0]+k*k*p2[0],(1-k)*(1-k)*p0[1]+2*(1-k)*k*p1[1]+k*k*p2[1]]}
+const MOVES=[ // [t0,t1,from,ctrl,to]
+  [1.2,2.75,[1180,520],[1450,420],[1560,180]],
+  [3.9,4.5,[1560,180],[1300,330],[1080,541]],
+  [4.6,5.1,[1080,541],[1100,560],[1060,590]],
+  [5.25,5.7,[1060,590],[1000,610],[960,627]],
+  [6.3,6.8,[960,627],[1020,680],[1085,707]],
+  [11.4,12.1,[1300,700],[900,560],[520,232]],
+];
+const CLICKS=[[1560,180,T.dashClick],[1080,541,T.selClick],[1060,590,T.selPick],[960,627,T.amtClick],[1085,707,T.contClick],[520,232,T.rowClick]];
+function cursorState(t){
+  let pos=null,op=0;
+  for(const m of MOVES){ if(t>=m[0]&&t<=m[1]){pos=bez(m[2],m[3],m[4],ease(seg(t,m[0],m[1])));break;} }
+  if(!pos){ // hold at last reached point
+    let last=null;for(const m of MOVES){if(t>m[1])last=m[4];}
+    pos=last||MOVES[0][2];
+  }
+  // visibility windows
+  const vis=[[1.2,3.3],[3.8,6.0],[6.25,7.2],[11.35,12.6]];
+  vis.forEach(([a,b])=>{op=Math.max(op,seg(t,a,a+.2)*(1-seg(t,b-.2,b)))});
+  // typing hides cursor: window 5.95-6.25 handled by vis gap
+  const mode=(t>5.5&&t<6.0)?'ibeam':'arrow';
+  let pr=0;CLICKS.forEach(c=>{pr=Math.max(pr,bell(t,c[2]-.05,c[2]+.02,c[2]+.14))});
+  return [pos[0],pos[1],op,mode,pr];
+}
+
+function render(t){
+  $('fade').style.opacity=Math.max(1-seg(t,0,.35),seg(t,DUR-.35,DUR));
+  const [z,fx,fy]=cam(t);
+  const wx=96+.9*fx, wy=109+.9*Y(fy);
+  $('cam').style.transform=`translate(${960-z*wx}px,${540-z*wy}px) scale(${z})`;
+  const pz=1+(z-1)*.22;$('bg').style.transform=`translate(${(960-wx)*(z-1)*.25}px,${(540-wy)*(z-1)*.25}px) scale(${pz})`;
+  const g=(id,x,y)=>{$(id).style.transform=`translate(${x}px,${y}px)`};
+  g('g1',150+Math.sin(t*.35)*90,40+Math.cos(t*.28)*60);g('g2',1250+Math.cos(t*.3)*80,700+Math.sin(t*.25)*60);g('g3',900+Math.sin(t*.22+1)*120,180+Math.cos(t*.31)*50);
+  PTS.forEach(p=>{const y=((p.y-p.v*t)%1480+1480)%1480;p.e.style.transform=`translate(${p.x+Math.sin(t*.5+p.ph)*p.dx}px,${y}px)`;p.e.style.opacity=p.a*(.55+.45*Math.sin(t*p.f*2+p.ph))});
+
+  // ---------- scene opacity / transitions
+  const aIn=ease(seg(t,...T.toApply)), iIn=ease(seg(t,...T.toInbox)), dBack=ease(seg(t,...T.toDash));
+  const dashOp = t<T.toDash[0] ? 1-aIn : dBack;
+  const applyOp= t<T.toInbox[0] ? aIn : 1-iIn;
+  const inboxOp= t<T.toDash[0] ? iIn : 1-dBack;
+  const sc=(id,o,blurK)=>{const e=$(id);e.style.opacity=o;e.style.display=o>0.001?'block':'none';e.style.filter=blurK>0.001?`blur(${blurK*6}px)`:'none'};
+  sc('sDash',dashOp,(1-dashOp)*(dashOp>0&&dashOp<1?1:0));
+  sc('sApply',applyOp,(1-applyOp)*(applyOp>0&&applyOp<1?1:0));
+  sc('sInbox',inboxOp,(1-inboxOp)*(inboxOp>0&&inboxOp<1?1:0));
+  // slight scale on scene swap for depth
+  $('sInbox').style.transform=`scale(${1+.02*(1-iIn)})`;
+
+  // ---------- dashboard: apply hover + activity insertion
+  $('applyHover').style.opacity=bell(t,2.55,2.8,3.3);
+  const rowT=T.rows; // ar2 (approved) first, then ar1, ar0
+  const k2=ease(seg(t,rowT[0],rowT[0]+.45)),k1=ease(seg(t,rowT[1],rowT[1]+.45)),k0=ease(seg(t,rowT[2],rowT[2]+.45));
+  const shift=50*(k2+k1+k0);
+  $('listShot').style.transform=`translateY(${shift}px)`;
+  const rowY=(k,base)=>base; // rows stack from top
+  $('ar0').style.top='2px';$('ar0').style.opacity=k0;
+  $('ar1').style.top=(2+50*k0)+'px';$('ar1').style.opacity=k1;
+  $('ar2').style.top=(2+50*(k0+k1))+'px';$('ar2').style.opacity=k2;
+  ['ar0','ar1','ar2'].forEach((id,i)=>{const k=[k0,k1,k2][i];$(id).style.transform=`translateX(${(1-k)*-14}px)`});
+  $('ar0').querySelector('.hl').style.opacity=bell(t,rowT[2]+.2,rowT[2]+.6,18.4);
+  const pl=bell(t,T.pill[0],T.pill[0]+.35,T.pill[1]);
+  $('fundsPill').style.opacity=pl;$('fundsPill').style.transform=`translate(-50%,0) translateY(${(1-eOut(seg(t,T.pill[0],T.pill[0]+.4)))*10}px) scale(${.96+.04*eOut(seg(t,T.pill[0],T.pill[0]+.4))})`;
+
+  // ---------- apply page
+  const selOpen=t>=T.selClick&&t<T.selPick+.05;
+  $('selRing').style.opacity=(t>=T.selClick&&t<T.amtClick)?1:0;
+  const mo=seg(t,T.selClick,T.selClick+.16)*(1-seg(t,T.selPick+.05,T.selPick+.2));
+  $('menu').style.opacity=mo;$('menu').style.transform=`translateY(${(1-mo)*-6}px) scaleY(${.96+.04*mo})`;
+  $('opt').style.background=(t>T.selClick+.35)?'rgba(103,87,245,.18)':'transparent';
+  const picked=t>=T.selPick;
+  $('selCover').style.opacity=$('selText').style.opacity=picked?seg(t,T.selPick,T.selPick+.12):0;
+  $('helpCover').style.opacity=picked?seg(t,T.selPick,T.selPick+.25):0;
+  const amtFocus=t>=T.amtClick&&t<T.contClick;
+  $('amtRing').style.opacity=amtFocus?seg(t,T.amtClick,T.amtClick+.12):0;
+  const typed="50".slice(0,[T.type[0],T.type[0]+.16].filter(x=>x<=t).length);
+  $('amtCover').style.opacity=t>=T.amtClick?1:0;
+  $('amtText').textContent=t>=T.amtClick?typed:'';
+  $('amtCaret').style.left=(803+$('amtText').offsetWidth+1)+'px';
+  const lk=typed.length?T.type[0]+.16*(typed.length-1):T.amtClick;
+  $('amtCaret').style.opacity=amtFocus&&((t-lk)<.4||Math.floor((t-lk-.4)/.5)%2===1)?1:0;
+  const cOn=typed.length===2?seg(t,T.type[0]+.2,T.type[0]+.4):0;
+  $('cont').style.opacity=cOn;$('cont').style.transform=`scale(${1-.03*bell(t,T.contClick-.05,T.contClick+.02,T.contClick+.14)})`;
+  $('cont').style.filter=`brightness(${1+.12*bell(t,6.55,6.75,7.0)})`;
+  // stepper montage
+  const [s0,s1]=T.steps;const stepDur=(s1-s0)/5;
+  $('formDim').style.opacity=ease(seg(t,s0,s0+.3))*(1-ease(seg(t,T.proc[1]-.1,T.proc[1]+.3)))*.9;
+  for(let i=0;i<6;i++){const st=s0+(i-1)*stepDur;const e=$('sf'+i);
+    const on=i===0?seg(t,s0-.1,s0+.05):seg(t,st,st+.2);
+    e.style.opacity=i===0?0:on;e.style.transform=`scale(${.7+.3*eOut(on)})`;
+    const done=i<5&&t>=s0+i*stepDur;e.textContent=done?'✓':String(i+1);}
+  // step 1 already active in screenshot; overlay its check once done
+  $('sf0').style.opacity=t>=s0?1:0;
+  for(let i=0;i<5;i++){const st=s0+i*stepDur-.05;$('sl'+i).style.transform=`scaleX(${ease(seg(t,st,st+stepDur*.8))})`;}
+  // processing
+  const pIn=eOut(seg(t,T.proc[0],T.proc[0]+.4)), pOut=seg(t,T.proc[1]-.25,T.proc[1]);
+  $('proc').style.opacity=pIn*(1-pOut);$('proc').style.transform=`translateY(${(1-pIn)*14}px) scale(${.97+.03*pIn})`;
+  $('spin').setAttribute('transform',`rotate(${t*420} 30 30)`);
+  const okK=seg(t,9.55,9.85);
+  $('spin').style.opacity=1-okK;$('okC').style.opacity=okK;$('okC').setAttribute('r',22+6*eOut(okK));
+  $('okP').style.opacity=okK>0?1:0;$('okP').style.strokeDashoffset=40*(1-ease(seg(t,9.65,9.95)));
+  $('procT1').style.opacity=seg(t,8.55,8.8);
+  $('procT2').style.opacity=seg(t,9.0,9.3);
+  $('procBar').querySelector('i').style.transform=`translateX(${((t*1.1)%1)*420-120}px)`;
+
+  // ---------- inbox
+  const tk=eOut(seg(t,T.toast,T.toast+.35)), tOut=seg(t,12.6,12.9);
+  $('toast').style.opacity=tk*(1-tOut);$('toast').style.transform=`translateX(${(1-tk)*40+tOut*30}px)`;
+  const nr=eOut(seg(t,T.toast+.1,T.toast+.45));
+  $('newRow').style.opacity=nr;$('newRow').style.transform=`translateY(${(1-nr)*-20}px)`;
+  document.querySelectorAll('#rows .mo').forEach((r,i)=>{r.style.transform=`translateY(${(nr-1)*84}px)`});
+  $('cnt').style.opacity=nr;
+  const opened=t>=T.rowClick;
+  $('newRow').style.background=opened?'#ecebff':'#f6f5ff';
+  const em=eOut(seg(t,T.emailIn,T.emailIn+.45));
+  $('empty').style.opacity=1-seg(t,T.emailIn,T.emailIn+.2);
+  $('email').style.opacity=em;$('email').style.transform=`translateY(${(1-em)*16}px)`;
+  const bp=bell(t,12.8,13.2,14.3);
+  $('badge').style.boxShadow=`0 0 ${30*bp}px rgba(0,209,146,${.45*bp})`;
+  $('badge').style.transform=`scale(${1+.035*bell(t,12.75,13.0,13.4)})`;
+
+  // ---------- sheen + end card
+  $('sheen').style.opacity=bell(t,17.6,18.1,18.6)*.9;$('sheen').style.backgroundPosition=`${lerp(120,-20,ease(seg(t,17.6,18.6)))}% 0`;
+  const endK=ease(seg(t,...T.toEnd));
+  $('cam').style.opacity=1-endK;$('cam').style.filter=endK>0.001?`blur(${endK*8}px)`:'none';
+  $('end').style.opacity=endK;
+  const lg=eOut(seg(t,T.toEnd[0]+.1,T.toEnd[1]+.3));$('end').querySelector('.lg').style.transform=`translateY(${(1-lg)*14}px) scale(${.97+.03*lg})`;
+  const tg=eOut(seg(t,T.toEnd[1]-.05,T.toEnd[1]+.5));$('end').querySelector('.tag').style.opacity=tg;$('end').querySelector('.tag').style.transform=`translateY(${(1-tg)*10}px)`;
+  $('end').querySelector('.fine').style.opacity=seg(t,T.toEnd[1]+.2,T.toEnd[1]+.7);
+
+  // ---------- cursor (inbox coords use same window space)
+  const [cx,cy,co,mode,pr]=cursorState(t);
+  $('cursor').style.transform=`translate(${cx}px,${Y(cy)}px) scale(${1-.12*pr})`;$('cursor').style.opacity=co;
+  $('arrow').style.display=mode==='arrow'?'block':'none';$('ibeam').style.display=mode==='ibeam'?'block':'none';
+  let rv=0,rx=0,ry=0,rs=0;CLICKS.forEach(([x,y,tc])=>{const k=seg(t,tc,tc+.5);if(k>0&&k<1){rv=(1-k)*.8;rx=x;ry=y;rs=8+30*eOut(k)}});
+  Object.assign($('ripple').style,{opacity:rv,left:(rx-rs)+'px',top:(Y(ry)-rs)+'px',width:2*rs+'px',height:2*rs+'px'});
+}
+window.render=render;window.DUR=DUR;render(0);
+</script>
+</body></html>
