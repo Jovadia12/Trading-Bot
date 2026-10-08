@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lead Finder · DCCN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="login" class="login hidden">
+  <form id="loginForm" class="login-card">
+    <div class="brand"><i>D</i><span>DCCN</span></div>
+    <h1>Lead Finder</h1>
+    <p class="muted">Sign in with your firm account.</p>
+    <label>Email<input name="email" type="email" autocomplete="username" required></label>
+    <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    <div id="loginError" class="error hidden"></div>
+    <button class="btn primary wide" type="submit">Sign in</button>
+  </form>
+</div>
+
+<div id="app" class="shell hidden">
+  <aside class="sidebar">
+    <div class="brand"><i>D</i><span>DCCN</span></div>
+    <nav>
+      <a class="nav active" href="#"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>Lead Finder</a>
+    </nav>
+    <div class="side-foot">
+      <div class="who"><div id="whoFirm" class="firm"></div><div id="whoEmail" class="muted small"></div></div>
+      <button id="logout" class="nav"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>Sign Out</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <div>
+        <h1>Lead Finder</h1>
+        <p class="muted">Individual crypto holders who publicly linked their wallet to themselves and can be contacted.</p>
+      </div>
+      <div id="providers" class="providers"></div>
+    </header>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="leads">Crypto Leads</button>
+      <button class="tab" data-tab="saved">Saved Leads <span id="savedCount" class="pill"></span></button>
+      <button class="tab" data-tab="searches">Recent Searches</button>
+    </div>
+
+    <form id="searchForm" class="searchbar">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="q" maxlength="500" placeholder="Search crypto investors, wallets, locations, industries, or keywords...">
+      <button class="btn primary" type="submit" id="searchBtn">Search Leads</button>
+      <button class="btn ghost" type="button" id="refreshBtn">Refresh</button>
+    </form>
+    <div id="searchMeta" class="search-meta hidden"></div>
+
+    <section id="pipeline" class="pipeline"></section>
+
+    <section id="tab-leads" class="tabpane">
+      <div class="layout">
+        <form id="filters" class="filters card">
+          <div class="filters-head"><h3>Filters</h3></div>
+          <fieldset><legend>Location</legend>
+            <input name="country" placeholder="Country"><input name="state" placeholder="State">
+            <input name="city" placeholder="City"><input name="zip" placeholder="ZIP">
+          </fieldset>
+          <fieldset><legend>Crypto</legend>
+            <select name="chain" id="chainSelect"><option value="">All verified chains</option></select>
+            <div class="row2"><input name="min_value" type="number" min="0" placeholder="Min portfolio $"><input name="max_value" type="number" min="0" placeholder="Max portfolio $"></div>
+            <div class="row2"><input name="min_activity" type="number" min="0" placeholder="Min trades (90d)"><input name="min_assets" type="number" min="0" placeholder="Min asset count"></div>
+          </fieldset>
+          <fieldset><legend>Person</legend>
+            <input name="industry" placeholder="Industry"><input name="job_title" placeholder="Job title">
+            <div class="row2"><input name="company_size_min" type="number" min="0" placeholder="Co. size min"><input name="company_size_max" type="number" min="0" placeholder="Co. size max"></div>
+            <input name="min_years_in_business" type="number" min="0" placeholder="Min years in business">
+          </fieldset>
+          <fieldset><legend>Intent</legend>
+            <label class="check"><input type="checkbox" name="funding_interest"> Funding interest (DeFi borrowing observed)</label>
+            <input name="min_score" type="number" min="0" max="100" placeholder="Min lead score (0-100)">
+          </fieldset>
+          <fieldset><legend>Contact</legend>
+            <label class="check"><input type="checkbox" name="email_available"> Email available</label>
+            <label class="check"><input type="checkbox" name="phone_available"> Phone available</label>
+            <label class="check"><input type="checkbox" name="email_verified"> Email verified</label>
+          </fieldset>
+          <div class="filter-actions">
+            <button type="button" class="btn ghost" id="clearFilters">Clear Filters</button>
+            <button type="submit" class="btn primary">Apply Filters</button>
+          </div>
+        </form>
+
+        <div class="results">
+          <div class="section-head">
+            <div><h2>Contactable Crypto Leads</h2><p class="muted small">Real person · real wallet · verified holdings/activity · strong self-published attribution · public contact</p></div>
+            <span id="contactableCount" class="pill big"></span>
+          </div>
+          <div id="leadGrid" class="grid"></div>
+
+          <details id="oppsBox" class="card opps">
+            <summary><span>Crypto Opportunities</span> <span id="oppCount" class="pill"></span>
+              <span class="muted small">Not contactable leads: unattributed wallets, entities, missing contact or insufficient identity</span></summary>
+            <div class="table-wrap"><table id="oppTable"><thead><tr>
+              <th>Wallet</th><th>Chain</th><th>Holdings</th><th>Activity</th><th>Identity</th><th>Attribution</th><th>Why not contactable</th><th></th>
+            </tr></thead><tbody></tbody></table></div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-saved" class="tabpane hidden">
+      <div class="card"><div class="table-wrap"><table id="savedTable"><thead><tr>
+        <th>Name</th><th>Wallet</th><th>Holdings</th><th>Email</th><th>Phone</th><th>Score</th><th>Saved</th><th>Stage</th><th></th>
+      </tr></thead><tbody></tbody></table></div></div>
+    </section>
+
+    <section id="tab-searches" class="tabpane hidden">
+      <div class="card"><div class="table-wrap"><table id="searchTable"><thead><tr>
+        <th>When</th><th>Search</th><th>Filters</th><th>Discovered</th><th>Qualified</th><th>Identified</th><th>Contactable</th><th>Reused</th><th>Status</th><th></th>
+      </tr></thead><tbody></tbody></table></div></div>
+    </section>
+  </main>
+</div>
+
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <button class="close" id="modalClose" aria-label="Close">×</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

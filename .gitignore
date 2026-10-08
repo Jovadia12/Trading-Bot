@@ -4,3 +4,7 @@
 *.key
 *.pem
 secrets/
+lead_finder.db
+lead_finder.db-*
+__pycache__/
+.pytest_cache/
